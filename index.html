@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>修真RPG · 时光与寿元</title>
   <style>
+
     :root{
       --bg:#0b0f14;
       --panel:#111827;
@@ -256,15 +257,34 @@
       .app{grid-template-columns: 1fr; }
       .topbar{flex-direction:column; align-items:flex-start}
     }
-  </style>
+  
+
+/* === Map Grid === */
+.mapWrap{display:flex; gap:12px; flex-wrap:wrap}
+.grid{display:grid; grid-template-columns: repeat(var(--n), 26px); grid-auto-rows:26px; gap:4px; padding:8px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.10); border-radius:14px; overflow:auto; max-width:100%}
+.tile{width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer; user-select:none; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.03)}
+.tile.unknown{opacity:.35}
+.tile.you{outline:2px solid rgba(255,255,255,.55)}
+.tile.poi{background:rgba(255,255,255,.06)}
+.legend{display:flex; flex-wrap:wrap; gap:8px}
+.badge{padding:4px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.04); font-size:12px}
+.list{display:flex; flex-direction:column; gap:8px}
+.itemRow{display:flex; gap:10px; align-items:flex-start; justify-content:space-between; padding:10px; border:1px solid rgba(255,255,255,.10); border-radius:14px; background:rgba(255,255,255,.03)}
+.itemRow b{font-weight:700}
+.itemMeta{display:flex; gap:8px; flex-wrap:wrap}
+.pill2{padding:2px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.04); font-size:12px}
+.mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+
+</style>
 </head>
 <body>
+
   <div class="topbar">
     <div class="brand">
       <div class="logo" aria-hidden="true"></div>
       <div>
         <h1>修真RPG · 时光与寿元</h1>
-        <div class="sub">修炼变慢、选择更重；十年闭关不会轻易炸炉，但会错过世界窗口。</div>
+        <div class="sub">修炼变慢、选择更重；十年闭关主要代价是错过机缘。五洲：东南西北中。</div>
       </div>
     </div>
     <div class="row">
@@ -384,1115 +404,1378 @@
     </div>
   </div>
 
+
 <script>
+
+/* 修真RPG · 时光与寿元 (v0.2) */
+(()=>{"use strict";
+
 /* =========================
-   修真RPG · 时光与寿元（单文件）
-   设计口径：10年闭关风险可控，主要代价是错过窗口
-   ========================= */
-
-const VERSION = "rpg-v1.0.0";
-const STORAGE_KEY = "xiuzhen_rpg_save_v1";
-
-// 时间：采用 360 天/年（方便计算）
+   Config
+========================= */
+const VERSION = "0.2.0";
+const SAVE_KEY = "xiuxian_rpg_save_v02";
 const DAYS_PER_YEAR = 360;
 
 const REALMS = [
-  { key:"LQ", name:"炼气", stages:["初期","中期","后期"], lifeCapYears: 90,  lifeRejuvenate: 0 },
-  { key:"ZJ", name:"筑基", stages:["初期","中期","后期"], lifeCapYears: 150, lifeRejuvenate: 30 },
-  { key:"JD", name:"金丹", stages:["初期","中期","后期"], lifeCapYears: 270, lifeRejuvenate: 60 },
-  { key:"YY", name:"元婴", stages:["初期","中期","后期"], lifeCapYears: 470, lifeRejuvenate: 100 },
-  { key:"HS", name:"化神", stages:["初期","中期","后期"], lifeCapYears: 770, lifeRejuvenate: 150 },
+  { name:"炼气", stages:["初期","中期","后期"], lifeCapYears: 90,  lifeGainYears: 0,   rejuvenateYears: 0  },
+  { name:"筑基", stages:["初期","中期","后期"], lifeCapYears: 150, lifeGainYears: 60,  rejuvenateYears: 30 },
+  { name:"金丹", stages:["初期","中期","后期"], lifeCapYears: 270, lifeGainYears: 120, rejuvenateYears: 60 },
+  { name:"元婴", stages:["初期","中期","后期"], lifeCapYears: 470, lifeGainYears: 200, rejuvenateYears: 100},
+  { name:"化神", stages:["初期","中期","后期"], lifeCapYears: 770, lifeGainYears: 300, rejuvenateYears: 150},
+];
+
+const TIER_LABEL = { t1:"一流", t2:"二流", t3:"三流" };
+const ALIGN_LABEL = { righteous:"正道", neutral:"中立", evil:"魔道" };
+
+const CONTINENTS = [
+  { id:"east",  name:"东大陆",  desc:"山河秀丽，灵脉中等，资源均衡。",  mods:{res:1.0, risk:1.0, price:1.0}},
+  { id:"south", name:"南大陆",  desc:"湿热繁茂，灵草丰富，妖兽也多。",  mods:{res:1.2, risk:1.1, price:1.0}},
+  { id:"west",  name:"西大陆",  desc:"贫瘠匮乏，矿脉稀少，争夺频繁。",  mods:{res:0.75, risk:1.15, price:1.15}},
+  { id:"north", name:"北大陆",  desc:"严寒凛冽，修行艰苦，但出奇才。",  mods:{res:0.9, risk:1.1, price:1.05}},
+  { id:"central",name:"中大陆", desc:"最富裕繁盛，一流宗门最多，机缘也多。", mods:{res:1.35, risk:1.0, price:0.95}},
 ];
 
 const ENVIRONMENTS = [
-  { id:"wild", name:"野外洞府", eff:1.00, risk:1.00, costStone:0,  insight:1.00 },
-  { id:"sect", name:"宗门洞府", eff:1.20, risk:0.85, costStone:120, insight:1.05 },
-  { id:"ley",  name:"灵脉福地", eff:1.50, risk:0.92, costStone:450, insight:1.25 },
+  { id:"wild",  name:"野外洞府", eff:1.0, risk:1.0, costStone:0 },
+  { id:"sect",  name:"宗门洞府", eff:1.2, risk:0.85, costStone:120 },
+  { id:"ley",   name:"灵脉福地", eff:1.5, risk:0.9, costStone:260 },
 ];
 
-const SUPPLIES = {
-  assistPill: { id:"assistPill",  name:"助修丹",   desc:"修为效率 +20%", costStone:160, eff:1.20, riskMul:1.00, mindBonus:0 },
-  protectPill:{ id:"protectPill", name:"护脉丹",   desc:"走火概率 -40%", costStone:180, eff:1.00, riskMul:0.60, mindBonus:0 },
-  wardTalis:  { id:"wardTalis",   name:"辟邪符",   desc:"心魔概率 -40%", costStone:140, eff:1.00, riskMul:1.00, mindBonus:+1, demonMul:0.60 },
-  stablePow:  { id:"stablePow",   name:"巩固散",   desc:"突破失败惩罚减半（一次）", costStone:200, eff:1.00, riskMul:1.00, mindBonus:0, failShield:true },
-};
+const SUPPLIES = [
+  { id:"none", name:"不使用", cost:0, mods:{} },
+  { id:"assist", name:"助修丹", cost:120, mods:{cultEff:+0.20} },
+  { id:"guard",  name:"护脉丹", cost:160, mods:{fireRiskMul:0.60} },
+  { id:"ward",   name:"辟邪符", cost:160, mods:{demonRiskMul:0.60} },
+  { id:"stabil", name:"巩固散", cost:220, mods:{failPenaltyMul:0.50} },
+];
+
+const DEMON_POLICY = [
+  { id:"confront", name:"直面心魔", desc:"悟性收益更高，失败代价更大。", mods:{insOnWin: +8, loseMul:1.1} },
+  { id:"suppress", name:"压制心魔", desc:"失败代价更低，但收益较小。", mods:{insOnWin: +3, loseMul:0.85} },
+  { id:"evade",    name:"回避心魔", desc:"更安全，但可能留下心魔印记。", mods:{insOnWin: 0,  markChance:+0.18} },
+];
 
 const AGENT_TASKS = [
-  { id:"none", name:"不指派" },
-  { id:"buy", name:"代购突破材料", desc:"降低突破所需灵石/材料压力（以灵石返还形式体现）" },
-  { id:"intel", name:"盯梢秘境情报", desc:"降低错过秘境的损失（部分改为线索）" },
-  { id:"contrib", name:"处理宗门差事", desc:"闭关期间仍可获得少量贡献与声望" },
+  { id:"none", name:"不指派", desc:"—", mods:{} },
+  { id:"intel", name:"打探机缘", desc:"降低错过窗口的损失。", mods:{missMitigation:+0.20} },
+  { id:"buy",   name:"代购材料", desc:"闭关结束获得少量突破材料/灵石。", mods:{bonusStone:+120} },
+  { id:"sect",  name:"维系宗门", desc:"闭关期间保持宗门贡献/名声缓慢增长。", mods:{sectContrib:+40} },
 ];
 
-const REGIONS = [
-  { id:"qingzhou", name:"青州", tierHint:"三流地界", mainRealmIdx:0 }, // 炼气为主
-  { id:"yuzhou", name:"豫州", tierHint:"二流要冲", mainRealmIdx:1 },   // 筑基为主
-  { id:"lingnan", name:"岭南", tierHint:"灵脉密集", mainRealmIdx:2 },  // 金丹为主
+const ITEM_RARITY = [
+  { id:"common",  name:"凡品", mult:1.0, color:"#ddd" },
+  { id:"rare",    name:"灵品", mult:1.35 },
+  { id:"epic",    name:"宝品", mult:1.75 },
+  { id:"legend",  name:"仙品", mult:2.3 },
 ];
 
-// =========================
-// State
-// =========================
+const ITEM_SLOTS = [
+  { id:"weapon", name:"武器" },
+  { id:"armor", name:"护具" },
+  { id:"acc", name:"饰品" },
+];
 
-function newGame(){
-  const startYear = 1, startDay = 1;
-  const dayAbs = (startYear-1)*DAYS_PER_YEAR + (startDay-1);
-  const s = {
-    version: VERSION,
-    time: { dayAbs, startDayAbs: dayAbs },
-    player: {
-      name: "无名散修",
-      align: 0, // -100邪 +100正
-      realmIdx: 0,
-      stageIdx: 0,
-      xp: 0,
-      xpNeed: xpNeed(0,0),
-      tech: 0,      // 0..1000
-      techNeed: 1000,
-      insight: 0,
-      stones: 500,
-      hp: 120,
-      maxHp: 120,
-      atk: 12,
-      def: 8,
-      agi: 10,
-      mind: 0, // 心境（-5..+10）
-      injury: null, // {type, daysLeft, desc, effMul}
-      demonMark: 0, // 心魔印记层数
-      unstableDays: 0, // 境界不稳需要巩固
-      sect: { joined:false, name:"", tier:"", align:"", fame:0, contrib:0 },
-      world: { regionId:"qingzhou", loc:"野外" },
-      life: { ageDays: 18*DAYS_PER_YEAR, capDays: REALMS[0].lifeCapYears*DAYS_PER_YEAR }, // 18岁起步
-      bag: { stabilizePow:0 },
-    },
-    world: {
-      windows: [], // {id,type,name,regionId,startAbs,endAbs,desc,claimedBy?}
-      lastWindowGenYear: 0,
-      npcs: { rivals: [] }, // {name, realmIdx, stageIdx, faction, hatred}
-      lastChronicle: null,
-    },
-    ui: { tab:"cultivate", logPage:0 },
-    log: [],
-  };
+const TECHNIQUES = [
+  { id:"qi_basic", name:"吐纳诀", style:"心法", desc:"稳扎稳打，适合入门。", mods:{cultEff:1.0, insEff:1.0, riskMul:0.95, atkMul:1.0, defMul:1.0}},
+  { id:"sword",    name:"青锋剑典", style:"剑法", desc:"攻势凌厉，突破偏激进。", mods:{cultEff:0.98, insEff:1.05, riskMul:1.05, atkMul:1.12, defMul:0.95}},
+  { id:"body",     name:"铁骨炼体", style:"体修", desc:"更耐打，走火概率略降。", mods:{cultEff:0.97, insEff:0.98, riskMul:0.90, atkMul:1.03, defMul:1.12}},
+  { id:"mind",     name:"静心观想", style:"神魂", desc:"悟性更高，心魔更稳。", mods:{cultEff:0.96, insEff:1.22, riskMul:0.92, atkMul:0.95, defMul:1.02}},
+];
 
-  // 新手引导窗口
-  pushLog(s, "系统", "你初入修行，寿元有限。修炼要慢，但每一步要有选择。建议：先在【修炼/闭关】做一次30天巩固。", "info");
-  ensureWindowsForYear(s, getYear(s)); // 生成当年窗口
-  recalcStats(s);
-  return s;
-}
-
-// =========================
-// Utilities
-// =========================
-
+/* =========================
+   Utilities
+========================= */
+function $(id){ return document.getElementById(id); }
 function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
 function rand(){ return Math.random(); }
 function randi(a,b){ return Math.floor(a + rand()*(b-a+1)); }
 function pick(arr){ return arr[randi(0, arr.length-1)]; }
-function fmt(n){ return (Math.round(n*100)/100).toLocaleString("zh-CN"); }
+function fmt(n){ return Math.floor(n).toString(); }
+function percent(x){ return `${Math.round(x*100)}%`; }
 
-function getYear(state){
-  return Math.floor(state.time.dayAbs / DAYS_PER_YEAR) + 1;
+function hashStr(str){
+  // simple deterministic hash
+  let h=2166136261>>>0;
+  for(let i=0;i<str.length;i++){
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h>>>0;
 }
-function getDayOfYear(state){
-  return (state.time.dayAbs % DAYS_PER_YEAR) + 1;
+function mulberry32(a){
+  return function(){
+    let t = a += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
 }
-function dateText(state){
-  const y = getYear(state), d = getDayOfYear(state);
-  return `第${y}年·第${d}日`;
-}
-function ageYears(state){
-  return state.player.life.ageDays / DAYS_PER_YEAR;
-}
-function lifeLeftDays(state){
-  return state.player.life.capDays - state.player.life.ageDays;
-}
-function lifeText(state){
-  const left = lifeLeftDays(state);
-  const leftY = left / DAYS_PER_YEAR;
-  return `剩余${Math.max(0, leftY).toFixed(1)}年 / 上限${(state.player.life.capDays/DAYS_PER_YEAR).toFixed(0)}年`;
-}
-
-function realmName(state){
-  const r = REALMS[state.player.realmIdx];
-  return `${r.name}${r.stages[state.player.stageIdx]}`;
+function withSeed(seed, fn){
+  const oldRand = Math.random;
+  const gen = mulberry32(seed>>>0);
+  Math.random = gen;
+  try{ return fn(); } finally { Math.random = oldRand; }
 }
 
-function xpNeed(realmIdx, stageIdx){
-  // 递增曲线：前期快，后期慢；每大境界提升明显
-  const realmMul = [1.0, 2.2, 4.2, 7.5, 12.0][realmIdx] ?? (1+realmIdx*2.5);
-  const stageMul = [1.0, 1.25, 1.55][stageIdx] ?? 1.0;
-  return Math.floor(120 * realmMul * stageMul);
-}
-
-function recalcStats(state){
-  const p = state.player;
-
-  // 基础随境界增长，且大境界质变更明显
-  const realmBase = [0, 18, 45, 85, 140][p.realmIdx] ?? (p.realmIdx*30);
-  const stageBase = [0, 8, 16][p.stageIdx] ?? 0;
-
-  p.maxHp = 110 + realmBase*3 + stageBase*2;
-  p.atk = 10 + realmBase*1.7 + stageBase*1.3 + Math.floor(p.tech/120);
-  p.def = 8 + realmBase*1.5 + stageBase*1.2 + Math.floor(p.tech/160);
-  p.agi = 10 + Math.floor(realmBase*0.55) + Math.floor(p.tech/200);
-
-  // 伤势与不稳影响
-  let effMul = 1.0;
-  if(p.injury) effMul *= (p.injury.effMul ?? 0.85);
-  if(p.unstableDays>0) effMul *= 0.92;
-
-  // mind 影响轻微
-  p.mind = clamp(p.mind, -5, 10);
-
-  // hp 不超过上限
-  p.hp = clamp(p.hp, 0, p.maxHp);
-  p._cultEffMul = effMul;
-}
-
-// 日志：最新在上
-function pushLog(state, kind, text, tone="info"){
+function pushLog(state, who, msg, type="info"){
   const t = dateText(state);
-  state.log.unshift({
-    t, kind, tone, text,
-    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`
+  state.log.unshift({ t, who, msg, type });
+  // keep log reasonable
+  if(state.log.length>800) state.log.length = 800;
+}
+
+function getYear(state){ return Math.floor(state.time.dayAbs / DAYS_PER_YEAR) + 1; }
+function getDayOfYear(state){ return (state.time.dayAbs % DAYS_PER_YEAR) + 1; }
+function dateText(state){ return `第${getYear(state)}年·第${getDayOfYear(state)}日`; }
+
+function ageYears(state){ return state.player.life.ageDays / DAYS_PER_YEAR; }
+function lifeLeftDays(state){ return state.player.life.capDays - state.player.life.ageDays; }
+function lifeText(state){
+  const leftY = Math.max(0, lifeLeftDays(state)/DAYS_PER_YEAR);
+  const capY = state.player.life.capDays / DAYS_PER_YEAR;
+  return `剩余${leftY.toFixed(1)}年 / 上限${capY.toFixed(0)}年`;
+}
+
+function realmText(p){
+  const r = REALMS[p.realmIdx];
+  return `${r.name}·${r.stages[p.stageIdx]}`;
+}
+
+function alignLabel(v){
+  if(v>=25) return "正道";
+  if(v<=-25) return "魔道";
+  return "中立";
+}
+
+/* =========================
+   Economy & scaling
+========================= */
+function stagePower(realmIdx, stageIdx){
+  // coarse power index
+  return realmIdx*3 + stageIdx;
+}
+function xpNeed(realmIdx, stageIdx){
+  // curve tuned for slower pace: each stage increases sharply
+  const k = stagePower(realmIdx, stageIdx);
+  return Math.floor(180 + 120*k + 55*k*k);
+}
+
+function baseStatsFor(realmIdx, stageIdx){
+  const k = stagePower(realmIdx, stageIdx);
+  return {
+    atk: 8 + Math.floor(k*4.2),
+    def: 6 + Math.floor(k*3.8),
+    agi: 6 + Math.floor(k*3.2),
+    mind: 6 + Math.floor(k*3.6),
+    hp:  50 + Math.floor(k*22),
+  };
+}
+
+/* =========================
+   Items & Techniques
+========================= */
+function rarityByPower(k){
+  const roll = rand();
+  if(k>=10 && roll<0.06) return "legend";
+  if(k>=6  && roll<0.14) return "epic";
+  if(roll<0.32) return "rare";
+  return "common";
+}
+
+function genItem(state, source="wild"){
+  const p = state.player;
+  const cont = getContinent(state);
+  const k = stagePower(p.realmIdx, p.stageIdx);
+  const rar = rarityByPower(k);
+  const rarObj = ITEM_RARITY.find(x=>x.id===rar);
+  const slot = pick(ITEM_SLOTS).id;
+
+  const mult = rarObj.mult * (cont.mods.res);
+  const base = {
+    weapon: {atk: 6, def:0, agi:0, mind:0},
+    armor:  {atk: 0, def:6, agi:0, mind:0},
+    acc:    {atk: 0, def:0, agi:4, mind:4},
+  }[slot];
+
+  const roll = ()=> Math.max(0, Math.floor((base.atk + randi(0,2) + k*0.9) * mult));
+  const rollD = ()=> Math.max(0, Math.floor((base.def + randi(0,2) + k*0.8) * mult));
+  const rollA = ()=> Math.max(0, Math.floor((base.agi + randi(0,2) + k*0.6) * mult));
+  const rollM = ()=> Math.max(0, Math.floor((base.mind + randi(0,2) + k*0.6) * mult));
+
+  const stats = { atk: roll(), def: rollD(), agi: rollA(), mind: rollM() };
+
+  // small modifiers
+  let modText = "";
+  let extra = {};
+  if(rand()<0.25){
+    extra.cultEff = +(0.02 + rand()*0.05).toFixed(3); // +2%..7%
+    modText += `修炼效率+${Math.round(extra.cultEff*100)}% `;
+  }
+  if(rand()<0.18){
+    extra.riskMul = +(0.90 + rand()*0.09).toFixed(3); // 0.90..0.99
+    modText += `闭关风险×${extra.riskMul.toFixed(2)} `;
+  }
+
+  const nameCore = {
+    weapon:["飞剑","长刀","枪","拂尘","匕首"],
+    armor:["法衣","护甲","护腕","护肩","战袍"],
+    acc:["玉佩","戒","护符","项坠","灵珠"],
+  }[slot];
+  const prefix = rar==="common" ? "" : rar==="rare" ? "灵" : rar==="epic" ? "宝" : "仙";
+  const name = `${prefix}${pick(nameCore)}`;
+
+  const price = Math.floor((80 + k*30) * rarObj.mult * cont.mods.price);
+  const id = `itm_${Date.now()}_${Math.floor(Math.random()*1e6)}`;
+
+  return {
+    id, slot, rarity:rar, name,
+    stats, extra,
+    price,
+    desc: modText.trim() || "—",
+    source
+  };
+}
+
+function getTechById(id){ return TECHNIQUES.find(t=>t.id===id); }
+
+function ensurePlayerTechs(p){
+  if(!p.techs) p.techs = { mainId:"qi_basic", known:{ qi_basic: { mastery:120 } } };
+  if(!p.techs.mainId) p.techs.mainId = "qi_basic";
+  if(!p.techs.known) p.techs.known = { qi_basic:{mastery:120} };
+  if(!p.techs.known["qi_basic"]) p.techs.known["qi_basic"]={mastery:120};
+}
+
+function learnRandomTechnique(state, bias="any"){
+  const p = state.player;
+  ensurePlayerTechs(p);
+  const knownIds = new Set(Object.keys(p.techs.known));
+  const pool = TECHNIQUES.filter(t=>!knownIds.has(t.id));
+  if(!pool.length) return null;
+  const t = pick(pool);
+  p.techs.known[t.id] = { mastery: 20 };
+  return t;
+}
+
+/* =========================
+   Continents & Map
+========================= */
+function getContinent(state){
+  return CONTINENTS.find(c=>c.id===state.player.world.contId) || CONTINENTS[0];
+}
+
+function genNames(n, theme){
+  const a = ["玄","青","太","天","灵","紫","赤","苍","归","真","太一","无相","星","月","霜","炎","金","玉","玄元","道"];
+  const b = ["霄","云","剑","丹","冥","阳","阴","雷","泉","山","海","风","雪","火","木","砂","沙","河","城","宫","阁","宗"];
+  const c = ["门","派","宫","宗","阁","观","殿"];
+  const out = [];
+  while(out.length<n){
+    const nm = pick(a)+pick(b)+(rand()<0.6?pick(c):"");
+    if(!out.includes(nm)) out.push(nm);
+  }
+  return out;
+}
+
+function genContinentMap(contId, year){
+  // deterministic per year for "world evolves slowly"; but keep stable within a save
+  const seed = hashStr(`${contId}_${year}_map_seed`);
+  return withSeed(seed, ()=>{
+    const size = 11; // manageable grid
+    const tiles = [];
+    for(let y=0;y<size;y++){
+      for(let x=0;x<size;x++){
+        tiles.push({ x,y, discovered:false, type:"wild", poi:null });
+      }
+    }
+    const at = (x,y)=> tiles[y*size+x];
+    const place = (x,y,type,poi)=>{ const t=at(x,y); t.type=type; t.poi=poi||null; };
+
+    // terrain distribution hint by continent
+    const cont = CONTINENTS.find(c=>c.id===contId);
+    const scarcity = contId==="west" ? 0.35 : contId==="central" ? 0.65 : 0.5;
+    const cold = contId==="north" ? 0.6 : 0.2;
+
+    // basic randomness for wild tiles meta (stored in poi)
+    for(const t of tiles){
+      // precompute tile flavor
+      const r = rand();
+      let biome = "平原";
+      if(r < 0.16 + cold*0.12) biome="雪原";
+      else if(r < 0.30) biome="山地";
+      else if(r < 0.42 + (1-scarcity)*0.10) biome="荒地";
+      else if(r < 0.58 + (contId==="south"?0.10:0)) biome="密林";
+      else if(r < 0.66) biome="丘陵";
+      t.poi = t.poi || {};
+      t.poi.biome = biome;
+    }
+
+    // POIs: cities, ruins, ports
+    const cityCount = contId==="central" ? 3 : 2;
+    for(let i=0;i<cityCount;i++){
+      let x,y;
+      do{ x=randi(1,size-2); y=randi(1,size-2); }while(at(x,y).type!=="wild");
+      place(x,y,"city",{ name: pick(["安宁城","灵泉坊","青石镇","云河集","天枢城","落霞城"]), kind:"city" });
+    }
+
+    const ruinCount = contId==="central" ? 3 : 2;
+    for(let i=0;i<ruinCount;i++){
+      let x,y;
+      do{ x=randi(1,size-2); y=randi(1,size-2); }while(at(x,y).type!=="wild");
+      place(x,y,"ruin",{ name: pick(["古遗迹","残阵洞府","断剑冢","封印谷","秘泉窟"]), kind:"ruin" });
+    }
+
+    // ports: allow continent travel
+    let px,py;
+    do{ px=randi(0,size-1); py=randi(0,size-1); }while(at(px,py).type!=="wild");
+    place(px,py,"port",{ name:"渡界港", kind:"port" });
+
+    return { contId, size, tiles, generatedYear: year };
   });
-  // 限制长度
-  if(state.log.length > 1200) state.log.length = 1200;
 }
 
-function toneTag(tone){
-  if(tone==="good") return "good";
-  if(tone==="warn") return "warn";
-  if(tone==="bad") return "bad";
-  return "";
+/* =========================
+   Sects generation
+========================= */
+function genSectsForAllContinents(state){
+  const y = getYear(state);
+  const all = [];
+  const poolNames = genNames(60, "sect");
+  let idx=0;
+  const tierCounts = (contId)=>({
+    t1: contId==="central" ? randi(5,6) : randi(2,3),
+    t2: contId==="central" ? randi(4,6) : randi(3,5),
+    t3: contId==="central" ? randi(4,6) : randi(3,6),
+  });
+
+  for(const cont of CONTINENTS){
+    const counts = withSeed(hashStr(`${cont.id}_${y}_sect_seed`), ()=>tierCounts(cont.id));
+    for(const tier of ["t1","t2","t3"]){
+      for(let i=0;i<counts[tier];i++){
+        const name = poolNames[idx++ % poolNames.length];
+        const alignRoll = rand();
+        const align = alignRoll<0.45 ? "righteous" : alignRoll<0.70 ? "neutral" : "evil";
+        const id = `sect_${cont.id}_${tier}_${i}_${y}`;
+        all.push({
+          id, name, tier, align,
+          contId: cont.id,
+          fameReq: tier==="t1" ? 120 : tier==="t2" ? 60 : 0,
+          realmReq: tier==="t1" ? 2 : tier==="t2" ? 1 : 0, // t1>=金丹, t2>=筑基, t3>=炼气
+          joinFee: tier==="t1" ? 800 : tier==="t2" ? 400 : 120,
+          libraryTechChance: tier==="t1" ? 0.75 : tier==="t2" ? 0.55 : 0.30,
+          envUnlock: tier==="t1" ? "ley" : tier==="t2" ? "sect" : "wild",
+          desc: `${TIER_LABEL[tier]}宗门·${ALIGN_LABEL[align]}｜${cont.name}`
+        });
+      }
+    }
+  }
+  state.world.sects = all;
 }
 
-// =========================
-// Windows (world events)
-// =========================
+function placeSectsOnMaps(state){
+  // place sect POIs on each continent map deterministically
+  const year = getYear(state);
+  state.world.maps = state.world.maps || {};
+  for(const cont of CONTINENTS){
+    if(!state.world.maps[cont.id]){
+      state.world.maps[cont.id] = genContinentMap(cont.id, year);
+    }
+    const map = state.world.maps[cont.id];
+    // clear existing sect marks
+    for(const t of map.tiles){
+      if(t.type==="sect") { t.type="wild"; t.poi=null; }
+    }
+    const sects = (state.world.sects||[]).filter(s=>s.contId===cont.id);
+    const seed = hashStr(`${cont.id}_${year}_sect_place`);
+    withSeed(seed, ()=>{
+      const size = map.size;
+      const at = (x,y)=> map.tiles[y*size+x];
+      const used = new Set();
+      function free(x,y){ const k=`${x},${y}`; return !used.has(k) && at(x,y).type==="wild"; }
+      for(const s of sects){
+        let x,y, tries=0;
+        do{ x=randi(0,size-1); y=randi(0,size-1); tries++; }while((!free(x,y)) && tries<200);
+        used.add(`${x},${y}`);
+        const tile = at(x,y);
+        tile.type="sect";
+        tile.poi = { kind:"sect", sectId:s.id, name:s.name, tier:s.tier, align:s.align };
+        s.pos = { x,y };
+      }
+    });
+  }
+}
+
+/* =========================
+   World windows (opportunities)
+========================= */
 function ensureWindowsForYear(state, year){
+  // generate windows per continent; keep stable
+  state.world.windows = state.world.windows || [];
   if(state.world.lastWindowGenYear >= year) return;
 
-  // 生成从 last+1 到 year 的窗口
-  for(let y=state.world.lastWindowGenYear+1; y<=year; y++){
-    const yearStart = (y-1)*DAYS_PER_YEAR;
-    // 1) 秘境窗口
-    const secretStart = yearStart + randi(20, 260);
-    const secretLen = randi(30, 120);
-    const region = pick(REGIONS).id;
-    state.world.windows.push({
-      id:`sr_${y}_${region}`,
-      type:"secret",
-      name:`秘境·${pick(["残阳","青冥","玄水","龙渊","离火","归墟"])}洞天`,
-      regionId: region,
-      startAbs: secretStart,
-      endAbs: secretStart+secretLen,
-      desc:"秘境开放窗口短暂，闭关过久可能错过首波机缘。",
-      claimedBy: null,
-    });
+  const startAbs = (year-1)*DAYS_PER_YEAR;
+  const endAbs   = year*DAYS_PER_YEAR - 1;
+  const types = [
+    { id:"secret", name:"秘境开启", dur:[30,90] },
+    { id:"auction",name:"拍卖会", dur:[10,30] },
+    { id:"recruit",name:"宗门大比/收徒", dur:[20,60] },
+    { id:"rumor",  name:"机缘传闻", dur:[15,45] },
+  ];
 
-    // 2) 拍卖会窗口（城镇）
-    const aucStart = yearStart + randi(40, 310);
-    const aucLen = randi(10, 20);
-    state.world.windows.push({
-      id:`auc_${y}`,
-      type:"auction",
-      name:`拍卖会·${pick(["云海","天宝","琉璃","万象"])}楼`,
-      regionId: pick(REGIONS).id,
-      startAbs: aucStart,
-      endAbs: aucStart+aucLen,
-      desc:"稀缺丹方与灵材流通，错过则价格上浮或被势力垄断。",
-      claimedBy: null,
-    });
-
-    // 3) 宗门大比（若已入宗门则更重要）
-    const tourStart = yearStart + randi(90, 330);
-    const tourLen = randi(15, 30);
-    state.world.windows.push({
-      id:`tour_${y}`,
-      type:"sect",
-      name:`宗门大比`,
-      regionId: state.player.world.regionId,
-      startAbs: tourStart,
-      endAbs: tourStart+tourLen,
-      desc:"升迁、内门名额、长老收徒窗口。闭关可能错过。",
-      claimedBy: null,
+  for(const cont of CONTINENTS){
+    const baseN = cont.id==="central" ? 5 : 3;
+    const seed = hashStr(`${cont.id}_${year}_win_seed`);
+    withSeed(seed, ()=>{
+      for(let i=0;i<baseN;i++){
+        const tp = pick(types);
+        const len = randi(tp.dur[0], tp.dur[1]);
+        const s = randi(startAbs, endAbs-len);
+        const e = s + len;
+        const id = `win_${cont.id}_${year}_${i}`;
+        const name = tp.id==="secret" ? pick(["青冥秘境","归墟裂隙","天池洞天","万骨古窟"]) :
+                     tp.id==="auction"? pick(["云河拍卖","万宝会","暗市竞拍"]) :
+                     tp.id==="recruit"? pick(["宗门大比","内门考核","长老收徒"]) :
+                     pick(["残卷线索","古图流出","散修传闻"]);
+        state.world.windows.push({
+          id, type:tp.id, typeName:tp.name, name,
+          contId: cont.id,
+          startAbs:s, endAbs:e,
+          desc: `${cont.name}｜${tp.name}：${name}`,
+          claimedBy:null,
+        });
+      }
     });
   }
 
   state.world.lastWindowGenYear = year;
 }
 
-function upcomingText(state){
+function upcomingWindows(state, withinDays=360){
   const now = state.time.dayAbs;
-  const limit = now + DAYS_PER_YEAR; // 12个月
-  const upcoming = state.world.windows
-    .filter(w => w.endAbs >= now && w.startAbs <= limit)
-    .sort((a,b)=>a.startAbs-b.startAbs)
-    .slice(0,6);
-
-  if(upcoming.length===0) return "暂无窗口。";
-
-  const lines = upcoming.map(w=>{
-    const startY = Math.floor(w.startAbs / DAYS_PER_YEAR)+1;
-    const startD = (w.startAbs % DAYS_PER_YEAR)+1;
-    const endY = Math.floor(w.endAbs / DAYS_PER_YEAR)+1;
-    const endD = (w.endAbs % DAYS_PER_YEAR)+1;
-    const region = REGIONS.find(r=>r.id===w.regionId)?.name ?? "未知";
-    const tag = w.type==="secret"?"秘境":(w.type==="auction"?"交易":"宗门");
-    return `【${tag}】${w.name}（${region}）  第${startY}年·${startD}日 ~ 第${endY}年·${endD}日`;
-  });
-
-  return lines.join("\n");
+  const end = now + withinDays;
+  return (state.world.windows||[])
+    .filter(w=>w.endAbs>=now && w.startAbs<=end)
+    .sort((a,b)=>a.startAbs-b.startAbs);
 }
 
-// 结算错过窗口（闭关结束调用）
-function settleMissedWindows(state, startAbs, endAbs, agentTaskId){
-  const missed = state.world.windows.filter(w => w.startAbs >= startAbs && w.endAbs <= endAbs);
-  if(missed.length===0){
-    return { missed:[], notes:["十年/多年间天下无大波澜，你并未错过重要窗口。"] };
-  }
-
-  // 生成“谁拿走了机缘”
-  const notes = [];
-  const rivals = state.world.npcs.rivals;
-
-  function genRivalName(){
-    const fam = pick(["顾","沈","陆","韩","白","叶","秦","姜","萧","苏","楚","唐"]);
-    const name = pick(["玄","凌","尘","渊","霜","曜","岚","衡","离","珩","泽","昀"]);
-    const suf = pick(["","子","然","舟","宁","冥","霖"]);
-    return fam+name+suf;
-  }
-
-  for(const w of missed){
-    if(!w.claimedBy){
-      const r = {
-        name: genRivalName(),
-        realmIdx: clamp(state.player.realmIdx + pick([-1,0,0,0,1]), 0, REALMS.length-1),
-        stageIdx: randi(0,2),
-        faction: pick(["正道","邪修","散修","宗门客卿"]),
-        hatred: 0,
-      };
-      rivals.push(r);
-      w.claimedBy = r.name;
-    }
-  }
-
-  // 代理人补救
-  const agentNotes = [];
-  if(agentTaskId && agentTaskId !== "none"){
-    const fame = state.player.sect.fame ?? 0;
-    const base = 0.35 + clamp(fame/200, 0, 0.25); // 0.35~0.60
-    const cost = 80;
-    if(state.player.stones >= cost){
-      state.player.stones -= cost;
-      const ok = rand() < base;
-      if(ok){
-        if(agentTaskId==="buy"){
-          const refund = 160 + randi(0,120);
-          state.player.stones += refund;
-          agentNotes.push(`代理人成功代购材料，灵石返还 +${refund}。`);
-        } else if(agentTaskId==="intel"){
-          state.player.insight += 2;
-          agentNotes.push(`代理人带回秘境线索，你获得悟性点 +2（可用于突破）。`);
-        } else if(agentTaskId==="contrib"){
-          if(state.player.sect.joined){
-            state.player.sect.contrib += 40;
-            state.player.sect.fame += 10;
-            agentNotes.push(`代理人处理宗门差事，你获得贡献 +40，声望 +10。`);
-          } else {
-            state.player.stones += 60;
-            agentNotes.push(`代理人以散修身份接小差事，灵石 +60。`);
-          }
-        }
-      }else{
-        agentNotes.push(`代理人行事不利，仅带回零碎消息，未能有效补救。`);
-      }
-    }else{
-      agentNotes.push(`你未预留足够灵石（${cost}）供代理人运作，本次未能启用代理。`);
-    }
-  }
-
-  // 形成大事记
-  notes.push(`你闭关期间共错过 ${missed.length} 个窗口：`);
-  for(const w of missed.slice(0,6)){
-    const region = REGIONS.find(r=>r.id===w.regionId)?.name ?? "未知";
-    const tag = w.type==="secret"?"秘境":(w.type==="auction"?"交易":"宗门");
-    notes.push(`- 【${tag}】${w.name}（${region}）被 ${w.claimedBy} 抢得先机。`);
-  }
-  if(missed.length>6) notes.push(`- ……其余 ${missed.length-6} 个窗口略。`);
-
-  // 影响：错过秘境会让你下次探索更可能出现“残图”事件
-  const secretCount = missed.filter(x=>x.type==="secret").length;
-  if(secretCount>0){
-    state.world._missedSecretBuff = (state.world._missedSecretBuff ?? 0) + secretCount;
-    notes.push(`余波：秘境余韵尚存，未来探索更易获得“残图/传闻”。`);
-  }
-
-  notes.push(...agentNotes);
-
-  return { missed, notes };
-}
-
-// =========================
-// Core: advance time & checks
-// =========================
-function advanceDays(state, days, reason="行动"){
-  if(days<=0) return;
-  const p = state.player;
-  const startAbs = state.time.dayAbs;
-  const endAbs = startAbs + days;
-
-  // 每推进跨年就生成窗口
-  const startYear = getYear(state);
-  state.time.dayAbs = endAbs;
-  const endYear = getYear(state);
-  ensureWindowsForYear(state, endYear);
-
-  // 年龄与寿元消耗
-  p.life.ageDays += days;
-
-  // 伤势恢复/不稳巩固倒计时
-  if(p.injury){
-    p.injury.daysLeft -= days;
-    if(p.injury.daysLeft <= 0){
-      pushLog(state, "恢复", `伤势已愈，你的气血与行功不再受限。`, "good");
-      p.injury = null;
-    }
-  }
-  if(p.unstableDays>0){
-    p.unstableDays = Math.max(0, p.unstableDays - days);
-    if(p.unstableDays===0){
-      pushLog(state, "巩固", "境界已稳，气机圆融。", "good");
-    }
-  }
-
-  // 小量自然回血（非重伤）
-  const healRate = p.injury ? 0.06 : 0.12;
-  p.hp = clamp(p.hp + Math.floor(days * healRate * (p.maxHp/30)), 0, p.maxHp);
-
-  // 死亡判定
-  if(p.life.ageDays >= p.life.capDays){
-    gameOver(state);
-    return;
-  }
-
-  recalcStats(state);
-}
-
-function gameOver(state){
-  pushLog(state, "结局", `寿元耗尽。你止步于 ${realmName(state)}，江湖只留下些许传闻。`, "bad");
-  state._gameOver = true;
-  openModal(
-    "寿元已尽",
-    `<div class="card">
-      <div class="small">你已走到生命尽头。</div>
-      <div class="hr"></div>
-      <div class="small">最终境界：<b>${realmName(state)}</b></div>
-      <div class="small">生年：<b>${getYear(state)}年</b></div>
-      <div class="small">灵石：<b>${fmt(state.player.stones)}</b>，悟性点：<b>${state.player.insight}</b></div>
-      <div class="small">你可以选择重开，或导出存档留念。</div>
-    </div>`,
-    [
-      { text:"导出存档", cls:"btn", onClick: ()=>exportSave(state) },
-      { text:"重开", cls:"btn primary", onClick: ()=>{ closeModal(); stateReplace(newGame()); } },
-      { text:"关闭", cls:"btn", onClick: ()=>closeModal() },
-    ]
-  );
-}
-
-// =========================
-// Cultivation / Retreat
-// =========================
-
-function calcBaseCultivationPerDay(state){
-  // 基础修炼速度：前期不至于太慢，但总体拉长
-  const p=state.player;
-  const realmRate = [1.0, 1.35, 1.75, 2.2, 2.75][p.realmIdx] ?? (1+p.realmIdx*0.4);
-  const stageRate = [1.0, 1.08, 1.16][p.stageIdx] ?? 1.0;
-  const techRate = 1.0 + (p.tech/1000)*0.35;
-  const mindRate = 1.0 + (p.mind/20); // -5..+10 => 0.75..1.5
-  const age = ageYears(state);
-  const agePenalty = (age<=45)?1.0 : (age<=80? (1.0 - (age-45)/350) : 0.90); // 温和衰老
-  return 2.0 * realmRate * stageRate * techRate * mindRate * agePenalty * (p._cultEffMul ?? 1.0);
-}
-
-function calcTechGainPerDay(state){
-  const p=state.player;
-  const realmRate = [1.0, 1.10, 1.20, 1.35, 1.50][p.realmIdx] ?? 1.0;
-  return 1.2 * realmRate * (p._cultEffMul ?? 1.0);
-}
-
-function retreatRiskProfile(durationDays){
-  // 口径2：风险可控
-  if(durationDays<=30) return { qi:0.01, demon:0.02 };
-  if(durationDays<=360) return { qi:0.03, demon:0.05 };
-  return { qi:0.06, demon:0.08 };
-}
-
-function runRetreat(state, plan){
-  const p=state.player;
-  if(state._gameOver) return;
-
-  // 费用
-  const env = ENVIRONMENTS.find(e=>e.id===plan.envId) ?? ENVIRONMENTS[0];
-  let cost = env.costStone || 0;
-
-  let effMul = env.eff;
-  let qiMul = env.risk;  // 影响走火概率
-  let demonMul = 1.0;    // 影响心魔概率
-  let mindBonus = 0;
-
-  const chosen = [];
-  for(const key of ["assistPill","protectPill","wardTalis","stablePow"]){
-    if(plan.supplies?.[key]){
-      const it = SUPPLIES[key];
-      cost += it.costStone;
-      effMul *= (it.eff ?? 1.0);
-      qiMul *= (it.riskMul ?? 1.0);
-      demonMul *= (it.demonMul ?? 1.0);
-      mindBonus += (it.mindBonus ?? 0);
-      chosen.push(it.name);
-      if(it.failShield) p.bag.stabilizePow = (p.bag.stabilizePow ?? 0) + 1;
-    }
-  }
-
-  if(p.stones < cost){
-    pushLog(state, "闭关", `灵石不足（需要${cost}，仅有${p.stones}）。闭关方案取消。`, "warn");
-    return;
-  }
-  p.stones -= cost;
-
-  const startAbs = state.time.dayAbs;
-  const days = plan.days;
-
-  pushLog(state, "闭关", `你选择闭关 ${fmt(days)} 天（${env.name}），备品：${chosen.length?chosen.join("、"):"无"}。`, "info");
-
-  // 分块结算（每30天一次），以便插入心魔/走火事件
-  const chunk = 30;
-  let remain = days;
-
-  // 记录闭关期间错过窗口（在最后统一结算）
-  let qiEvents = 0, demonEvents = 0;
-
-  while(remain>0 && !state._gameOver){
-    const step = Math.min(chunk, remain);
-
-    // 修为与功法增长
-    const baseCult = calcBaseCultivationPerDay(state);
-    const baseTech = calcTechGainPerDay(state);
-
-    const gainXP = baseCult * effMul * step;
-    const gainTech = baseTech * effMul * step;
-
-    p.xp += gainXP;
-    p.tech = clamp(p.tech + gainTech, 0, 1000);
-
-    // 悟性：闭关少量产出（更依赖事件/心魔/秘境）
-    const insightGain = (rand() < 0.08 ? 1 : 0) * (env.insight>=1.2 ? 1 : 1);
-    if(insightGain>0) p.insight += insightGain;
-
-    // 心境小幅提升（长期闭关更稳）
-    p.mind = clamp(p.mind + mindBonus*0.15, -5, 10);
-
-    // 风险判定
-    const risk = retreatRiskProfile(days);
-    const qiChance = risk.qi * qiMul * (p.injury?1.2:1.0);
-    const demonChance = risk.demon * demonMul * (1 + p.demonMark*0.18);
-
-    // 走火事件（温和后果）
-    if(rand() < qiChance){
-      qiEvents++;
-      const inj = {
-        type:"内伤",
-        daysLeft: randi(20, 45),
-        effMul: 0.80,
-        desc:"经脉受阻，行功不畅（修炼效率降低）"
-      };
-      p.injury = inj;
-      p.hp = clamp(p.hp - Math.floor(p.maxHp*0.22), 0, p.maxHp);
-      p.mind = clamp(p.mind - 1, -5, 10);
-      pushLog(state, "走火", `闭关中气机反噬，落下【${inj.type}】（需${inj.daysLeft}天恢复）。`, "warn");
-    }
-
-    // 心魔事件：内容化（简化为一次抉择）
-    if(rand() < demonChance){
-      demonEvents++;
-      p.demonMark += 1;
-      pushLog(state, "心魔", "你在冥想中见到旧日执念化形，心魔来袭。", "warn");
-      // 立刻处理一次心魔抉择（不中断闭关，但会影响状态）
-      resolveHeartDemonAuto(state, plan.demonPolicy || "suppress");
-    }
-
-    // 时间推进（寿元消耗、恢复结算）
-    advanceDays(state, step, "闭关");
-    remain -= step;
-
-    // 达到突破门槛后不自动突破，但允许继续闭关（溢出存储）
-    // 不阻断循环：更贴合“闭关一口气很多年”
-  }
-
-  // 闭关结束：错过窗口大事记（口径2核心）
-  if(!state._gameOver){
-    const agentTaskId = plan.agentTaskId ?? "none";
-    const chron = settleMissedWindows(state, startAbs, startAbs+days, agentTaskId);
-    state.world.lastChronicle = chron;
-
-    if(chron.notes?.length){
-      pushLog(state, "十年大事记", chron.notes.join("\n"), "info");
-      openModal(
-        "闭关大事记",
-        `<div class="card"><div class="small">你出关回望，世事如潮。</div><div class="hr"></div>
-         <div class="small" style="white-space:pre-wrap; line-height:1.6">${escapeHtml(chron.notes.join("\n"))}</div></div>`,
-        [{ text:"知道了", cls:"btn primary", onClick: ()=>closeModal() }]
-      );
-    }
-  }
-
-  // 修为门槛提示
-  if(canBreakthrough(state)){
-    pushLog(state, "突破", "你气机已满，可以尝试突破（进入【突破】页签）。", "good");
-  }
-
-  recalcStats(state);
-}
-
-// 心魔事件（闭关内自动处理）：玩家在闭关方案里选择心魔策略
-function resolveHeartDemonAuto(state, policy){
-  const p=state.player;
-  // policy: suppress / confront / enlighten
-  if(policy==="suppress"){
-    // 稳定优先：成功率高，收益低
-    const ok = willCheck(state, 0.78);
-    p.mind = clamp(p.mind - 0.4, -5, 10);
-    if(ok){
-      p.demonMark = Math.max(0, p.demonMark - 1);
-      pushLog(state, "心魔", "你选择镇压心魔，执念渐退，气机趋稳。", "good");
-    }else{
-      pushLog(state, "心魔", "你镇压不彻底，执念仍存（心魔印记未退）。", "warn");
-    }
-    return;
-  }
-  if(policy==="confront"){
-    const ok = willCheck(state, 0.55);
-    if(ok){
-      p.insight += 1;
-      p.mind = clamp(p.mind + 0.4, -5, 10);
-      p.demonMark = Math.max(0, p.demonMark - 1);
-      pushLog(state, "心魔", "你正面应对心魔，心中清明，悟性点 +1。", "good");
-    }else{
-      p.mind = clamp(p.mind - 1.0, -5, 10);
-      p.hp = clamp(p.hp - Math.floor(p.maxHp*0.10), 0, p.maxHp);
-      pushLog(state, "心魔", "你被旧念缠身，心神受创（气血下降）。", "warn");
-    }
-    return;
-  }
-  // enlighten
-  const ok = willCheck(state, 0.45);
-  if(ok){
-    p.insight += 2;
-    p.mind = clamp(p.mind + 0.8, -5, 10);
-    p.demonMark = Math.max(0, p.demonMark - 1);
-    pushLog(state, "悟道", "你借心魔磨砺道心，豁然开朗，悟性点 +2。", "good");
-  }else{
-    p.demonMark += 1;
-    p.mind = clamp(p.mind - 1.3, -5, 10);
-    p.unstableDays += 20;
-    pushLog(state, "悟道", "你强行借势失败，心魔印记加深，境界不稳（需巩固）。", "bad");
-  }
-}
-
-// 意志判定：受心境、境界、年龄影响
-function willCheck(state, base){
-  const p=state.player;
-  const realmBonus = p.realmIdx*0.05;
-  const mindBonus = p.mind*0.02;
-  const age = ageYears(state);
-  const agePenalty = age>80 ? -0.06 : (age>60 ? -0.03 : 0);
-  const demonPenalty = -p.demonMark*0.04;
-  const chance = clamp(base + realmBonus + mindBonus + agePenalty + demonPenalty, 0.05, 0.95);
-  return rand() < chance;
-}
-
-// =========================
-// Breakthrough
-// =========================
-
-function canBreakthrough(state){
-  const p=state.player;
-  // 末阶段满了可突破到下一阶段/大境界
-  return p.xp >= p.xpNeed && !state._gameOver;
-}
-
-function prepTier(state){
-  const p=state.player;
-
-  // 计算准备度 0..100
-  const fullness = clamp(p.xp / p.xpNeed, 0, 1);
-  const tech = p.tech / 1000;
-  const mind = (p.mind + 5) / 15; // 0..1
-  const health = p.injury ? 0.55 : 1.0;
-  const demon = clamp(1 - p.demonMark*0.12, 0.3, 1.0);
-  const stable = p.unstableDays>0 ? 0.75 : 1.0;
-
-  // 口径2：准备是核心
-  const score = (fullness*36 + tech*22 + mind*14 + health*12 + demon*10 + stable*6);
-
-  let tier="低", range=[0.35,0.50];
-  if(score>=70){ tier="极高"; range=[0.78,0.92]; }
-  else if(score>=55){ tier="高"; range=[0.62,0.78]; }
-  else if(score>=40){ tier="中"; range=[0.50,0.62]; }
-
-  // 若你有悟性点可用于加持，提高下限
-  return { score: Math.round(score), tier, range };
-}
-
-function attemptBreakthrough(state, spendInsight){
-  const p=state.player;
-  if(!canBreakthrough(state)) return;
-
-  const {score,tier,range} = prepTier(state);
-
-  let bonus = 0;
-  if(spendInsight){
-    const spend = Math.min(p.insight, 3);
-    p.insight -= spend;
-    bonus += spend*0.04; // 每点悟性 +4%
-    pushLog(state, "突破", `你以悟性加持冲关（消耗悟性点 ${spend}）。`, "info");
-  }
-
-  // 环境：若在灵脉/宗门更稳
-  const loc = state.player.world.loc;
-  let envBonus = 0;
-  if(loc.includes("洞府") || loc.includes("宗门")) envBonus += 0.03;
-  if(loc.includes("灵脉")) envBonus += 0.06;
-
-  // 若有巩固散保底：失败惩罚减半一次
-  const hasShield = (p.bag.stabilizePow ?? 0) > 0;
-
-  const chance = clamp(range[0] + (range[1]-range[0])*(score/100) + bonus + envBonus, 0.08, 0.97);
-  const roll = rand();
-
-  if(roll < chance){
-    doBreakthroughSuccess(state);
-  }else{
-    doBreakthroughFail(state, hasShield);
-  }
-
-  recalcStats(state);
-}
-
-function doBreakthroughSuccess(state){
-  const p=state.player;
-
-  // 前进：先升小境界，满则升大境界
-  let newRealm = p.realmIdx;
-  let newStage = p.stageIdx + 1;
-  let advancedMajor = false;
-
-  if(newStage >= 3){
-    newStage = 0;
-    newRealm = Math.min(REALMS.length-1, p.realmIdx + 1);
-    advancedMajor = (newRealm !== p.realmIdx);
-  }
-
-  p.realmIdx = newRealm;
-  p.stageIdx = newStage;
-
-  // 重置修为（溢出保留一部分）
-  const overflow = Math.max(0, p.xp - p.xpNeed);
-  p.xpNeed = xpNeed(p.realmIdx, p.stageIdx);
-  p.xp = overflow*0.25;
-
-  // 境界不稳：需要巩固（口径2：轻惩罚）
-  p.unstableDays = randi(20, 40);
-
-  // 大境界增寿（并回春）
-  if(advancedMajor){
-    const cap = REALMS[p.realmIdx].lifeCapYears * DAYS_PER_YEAR;
-    const oldCap = p.life.capDays;
-    p.life.capDays = Math.max(p.life.capDays, cap);
-    const rejuvenate = REALMS[p.realmIdx].lifeRejuvenate * DAYS_PER_YEAR;
-    p.life.ageDays = Math.max(0, p.life.ageDays - rejuvenate);
-    pushLog(state, "大突破", `你踏入【${realmName(state)}】！寿元上限提升，回春 ${(rejuvenate/DAYS_PER_YEAR).toFixed(0)} 年。`, "good");
-  }else{
-    pushLog(state, "突破", `你突破至【${realmName(state)}】（需巩固${p.unstableDays}天）。`, "good");
-  }
-}
-
-function doBreakthroughFail(state, shield){
-  const p=state.player;
-  let penaltyMul = shield ? 0.5 : 1.0;
-
-  if(shield){
-    p.bag.stabilizePow = Math.max(0, (p.bag.stabilizePow ?? 0) - 1);
-    pushLog(state, "保底", "巩固散生效：失败惩罚减半（消耗1份）。", "good");
-  }
-
-  // 口径2：失败更像延期成本
-  const lostXP = Math.floor(p.xpNeed * 0.12 * penaltyMul);
-  p.xp = Math.max(0, p.xp - lostXP);
-
-  const injDays = Math.floor(randi(12, 28) * penaltyMul);
-  p.injury = {
-    type:"冲关反噬",
-    daysLeft: injDays,
-    effMul: 0.85,
-    desc:"冲关反噬，需静养恢复（修炼效率降低）"
-  };
-
-  p.mind = clamp(p.mind - 0.8*penaltyMul, -5, 10);
-  p.demonMark += (rand()<0.35 ? 1 : 0);
-  p.unstableDays += Math.floor(15 * penaltyMul);
-
-  pushLog(state, "失败", `冲关未成（修为-${lostXP}），并落下【${p.injury.type}】（需${injDays}天）。`, "warn");
-}
-
-// =========================
-// Exploration (minimal MVP)
-// =========================
-function explore(state, days){
-  const p=state.player;
-  if(state._gameOver) return;
-
-  pushLog(state, "探索", `你在${REGIONS.find(r=>r.id===p.world.regionId)?.name ?? "未知"}一带游历 ${days} 天。`, "info");
-
-  // 先推进时间（探索本质是时间成本）
-  advanceDays(state, days, "探索");
-  if(state._gameOver) return;
-
-  // 单次事件（MVP）：避免一次探索触发多次弹窗
-  const long = days >= 30;
-  const r = rand();
-
-  if(r < 0.60){
-    const gain = randi(long?80:30, long?180:90);
-    p.stones += gain;
-    pushLog(state, "收获", `你寻得灵材换得灵石 +${gain}。`, "good");
-  } else if(r < 0.85){
-    const enemy = genEnemyNearRegion(state, long?0:-1);
-    resolveEncounter(state, enemy);
-  } else {
-    const bonus = state.world._missedSecretBuff ?? 0;
-    const ok = rand() < clamp(0.38 + bonus*0.10 + (long?0.08:0), 0.38, 0.85);
-    if(ok){
-      p.insight += 1;
-      state.world._missedSecretBuff = Math.max(0, bonus-1);
-      pushLog(state, "传闻", "你得一角残图与口述传承，悟性点 +1。", "good");
-    }else{
-      pushLog(state, "传闻", "你听闻秘境传说，但线索终究无果。", "info");
-    }
-  }
-
-  recalcStats(state);
-}
-
-function genEnemyNearRegion(state, bias){
-  // 根据区域主强度生成敌人；允许低/高波动
-  const region = REGIONS.find(r=>r.id===state.player.world.regionId) ?? REGIONS[0];
-  const center = region.mainRealmIdx;
-  const roll = rand();
-
-  let realmIdx = center;
-  if(roll < 0.20) realmIdx = clamp(center-1,0,REALMS.length-1);
-  else if(roll > 0.90) realmIdx = clamp(center+1,0,REALMS.length-1);
-
-  // 加上 bias（探索小敌时倾向更低）
-  realmIdx = clamp(realmIdx + bias, 0, REALMS.length-1);
-
+/* =========================
+   Game state & migration
+========================= */
+function defaultPlayer(){
+  const startYear=1, startDay=1;
+  const dayAbs=(startYear-1)*DAYS_PER_YEAR+(startDay-1);
   return {
-    name: pick(["路匪","邪修","散修","妖物","宗门弟子"]),
-    realmIdx,
-    stageIdx: randi(0,2),
-    hp: 80 + realmIdx*120 + randi(-10,30),
-    atk: 10 + realmIdx*28 + randi(0,10),
-    def: 6 + realmIdx*20 + randi(0,10),
-    agi: 9 + realmIdx*12 + randi(0,8),
-    align: pick([-1,1]),
+    version: VERSION,
+    time: { dayAbs, startDayAbs: dayAbs },
+    player: {
+      name:"无名散修",
+      align: 0,
+      realmIdx:0,
+      stageIdx:0,
+      xp:0,
+      xpNeed: xpNeed(0,0),
+      insight: 0,
+      stones: 320,
+      hp: 50, hpMax: 50,
+      status: { wound:0, inner:0, demonMark:0, unstableDays:0 },
+      world: { contId:"east", x:5, y:5, loc:"野外" },
+      life: { ageDays: 18*DAYS_PER_YEAR, capDays: REALMS[0].lifeCapYears*DAYS_PER_YEAR },
+      bag: { items:[], equip:{ weapon:null, armor:null, acc:null }, stabilizePow:0 },
+      sect: { joined:false, sectId:"", name:"", tier:"", align:"", fame:0, contrib:0 },
+      techs: { mainId:"qi_basic", known:{ qi_basic:{ mastery:120 } } },
+    },
+    world: {
+      maps: {},
+      sects: [],
+      windows: [],
+      lastWindowGenYear: 0,
+      npcs: { rivals: [] },
+      lastChronicle: null,
+    },
+    ui: { tab:"cultivate", logPage:0, selectedTile:null },
+    log: [],
   };
 }
 
-function realmPressure(attackerRealm, defenderRealm){
-  const diff = attackerRealm - defenderRealm;
-  if(diff>=2) return 0.35; // 两个大境界：几乎压制
-  if(diff>=1) return 0.18;
-  if(diff<=-2) return -0.22;
-  if(diff<=-1) return -0.10;
-  return 0.0;
+function migrateSave(obj){
+  if(!obj || typeof obj!=="object") return null;
+  // from previous versions: attempt best-effort
+  if(!obj.version){
+    obj.version="0.1.0";
+  }
+  // ensure required nodes
+  if(!obj.player) return null;
+  // upgrade bag
+  obj.player.bag = obj.player.bag || {};
+  if(!obj.player.bag.items) obj.player.bag.items=[];
+  if(!obj.player.bag.equip) obj.player.bag.equip={weapon:null, armor:null, acc:null};
+
+  // world setup
+  obj.world = obj.world || {};
+  obj.world.maps = obj.world.maps || {};
+  obj.world.sects = obj.world.sects || [];
+  obj.world.windows = obj.world.windows || [];
+  obj.world.npcs = obj.world.npcs || {rivals:[]};
+  obj.world.lastWindowGenYear = obj.world.lastWindowGenYear || 0;
+
+  // player world coords
+  obj.player.world = obj.player.world || { contId:"east", x:5, y:5, loc:"野外" };
+  if(!obj.player.world.contId) obj.player.world.contId="east";
+  if(typeof obj.player.world.x!=="number") obj.player.world.x=5;
+  if(typeof obj.player.world.y!=="number") obj.player.world.y=5;
+
+  // status
+  obj.player.status = obj.player.status || { wound:0, inner:0, demonMark:0, unstableDays:0 };
+
+  // techs
+  ensurePlayerTechs(obj.player);
+
+  obj.version = VERSION;
+  return obj;
 }
-
-// 遭遇（事件化 + 轻量选择）
-function resolveEncounter(state, enemy){
-  const p=state.player;
-  const pr = enemy.realmIdx - p.realmIdx;
-  const tag = pr>=2 ? "极危" : (pr>=1?"危险":(pr<=-1?"轻松":"旗鼓相当"));
-  const tone = pr>=2 ? "bad" : (pr>=1?"warn":"info");
-
-  openModal(
-    `遭遇：${enemy.name}（${REALMS[enemy.realmIdx].name}${REALMS[enemy.realmIdx].stages[enemy.stageIdx]}）`,
-    `<div class="cols2">
-      <div class="card">
-        <div class="small">你与对方狭路相逢。判断：<span class="tag ${toneTag(tone)}">${tag}</span></div>
-        <div class="hr"></div>
-        <div class="small">你的战力：攻击 ${Math.round(p.atk)} / 防御 ${Math.round(p.def)} / 身法 ${Math.round(p.agi)} / 气血 ${Math.round(p.hp)}/${Math.round(p.maxHp)}</div>
-        <div class="small">对方战力：攻击 ${enemy.atk} / 防御 ${enemy.def} / 身法 ${enemy.agi} / 气血 ${enemy.hp}</div>
-        <div class="small muted" style="margin-top:8px">境界压制：大境界差距会显著影响逃跑与命中。</div>
-      </div>
-      <div class="card">
-        <div class="small"><b>选择</b></div>
-        <div class="hr"></div>
-        <div class="small">• 交手：以战论道，胜则得资源。</div>
-        <div class="small">• 试图撤退：差一大境界将非常困难。</div>
-        <div class="small">• 交涉：偶尔可用灵石化解冲突。</div>
-      </div>
-    </div>`,
-    [
-      { text:"交手", cls:"btn primary", onClick: ()=>{ closeModal(); battle(state, enemy); } },
-      { text:"撤退", cls:"btn warn", onClick: ()=>{ closeModal(); tryEscape(state, enemy); } },
-      { text:"交涉（付50灵石）", cls:"btn", onClick: ()=>{
-        closeModal();
-        if(p.stones>=50 && rand()<0.55){
-          p.stones -= 50;
-          pushLog(state,"交涉","你以灵石平息争端，双方各退一步。","info");
-        }else{
-          pushLog(state,"交涉","交涉失败，对方逼近。","warn");
-          battle(state, enemy);
-        }
-        recalcStats(state); renderAll();
-      }},
-    ]
-  );
-}
-
-// 逃跑判定：境界压制很明显
-function tryEscape(state, enemy){
-  const p=state.player;
-  const diff = enemy.realmIdx - p.realmIdx; // 敌比我高为正
-  let base = 0.55 + (p.agi - enemy.agi)/120;
-  if(diff>=2) base -= 0.55;
-  else if(diff>=1) base -= 0.28;
-  else if(diff<=-1) base += 0.12;
-
-  if(p.injury) base -= 0.08;
-  const chance = clamp(base, 0.02, 0.92);
-  if(rand() < chance){
-    pushLog(state, "撤退", `你身法一展，成功脱身（成功率约${Math.round(chance*100)}%）。`, "good");
-  }else{
-    pushLog(state, "撤退", `撤退失败（成功率约${Math.round(chance*100)}%），被迫交手！`, "warn");
-    battle(state, enemy);
-  }
-  recalcStats(state); renderAll();
-}
-
-// 轻量战斗：三回合内决胜（事件化）
-function battle(state, enemy){
-  const p=state.player;
-  let eHp = enemy.hp;
-  let pHp = p.hp;
-
-  const diffP = realmPressure(p.realmIdx, enemy.realmIdx);
-  const diffE = realmPressure(enemy.realmIdx, p.realmIdx);
-
-  // 简化三回合：玩家可选策略
-  let round = 1;
-
-  function renderBattle(){
-    openModal(
-      `战斗回合 ${round}/3`,
-      `<div class="cols2">
-        <div class="card">
-          <div class="small">你：气血 <b>${Math.round(pHp)}</b> / ${Math.round(p.maxHp)}，攻击 <b>${Math.round(p.atk)}</b>，防御 <b>${Math.round(p.def)}</b></div>
-          <div class="small muted" style="margin-top:8px">压制影响：你对敌命中/伤害 ${diffP>=0?"+":"−"}${Math.round(Math.abs(diffP)*100)}%</div>
-        </div>
-        <div class="card">
-          <div class="small">敌：气血 <b>${Math.round(eHp)}</b>，攻击 <b>${enemy.atk}</b>，防御 <b>${enemy.def}</b></div>
-          <div class="small muted" style="margin-top:8px">压制影响：敌对你命中/伤害 ${diffE>=0?"+":"−"}${Math.round(Math.abs(diffE)*100)}%</div>
-        </div>
-      </div>`,
-      [
-        { text:"强攻", cls:"btn primary", onClick: ()=>{ closeModal(); doRound("atk"); } },
-        { text:"稳守", cls:"btn", onClick: ()=>{ closeModal(); doRound("def"); } },
-        { text:"符箓爆发（耗80灵石）", cls:"btn warn", onClick: ()=>{ closeModal(); doRound("talis"); } },
-        { text:"撤退", cls:"btn bad", onClick: ()=>{ closeModal(); tryEscape(state, enemy); } },
-      ]
-    );
-  }
-
-  function doRound(mode){
-    // 玩家行动
-    let pAtkMul = 1.0, pDefMul = 1.0;
-    let extraDmg = 0;
-    if(mode==="atk"){ pAtkMul=1.20; pDefMul=0.92; }
-    if(mode==="def"){ pAtkMul=0.90; pDefMul=1.25; }
-    if(mode==="talis"){
-      if(p.stones>=80){
-        p.stones -= 80;
-        extraDmg = 35 + p.realmIdx*25;
-        pAtkMul=1.15; pDefMul=0.95;
-        pushLog(state,"符箓","你激发符箓，灵光爆裂。","info");
-      }else{
-        pushLog(state,"符箓","灵石不足，符箓未能激发。","warn");
-        mode="atk"; pAtkMul=1.20; pDefMul=0.92;
-      }
-    }
-
-    const pHit = clamp(0.78 + (p.agi - enemy.agi)/200 + diffP, 0.15, 0.95);
-    const eHit = clamp(0.72 + (enemy.agi - p.agi)/220 + diffE, 0.10, 0.92);
-
-    if(rand()<pHit){
-      const dmg = Math.max(1, (p.atk*pAtkMul - enemy.def*0.65)) * (1+diffP);
-      const dealt = Math.floor(dmg + extraDmg + randi(0,8));
-      eHp -= dealt;
-      pushLog(state,"战斗",`你出手命中，对方受创 -${dealt}。`,"info");
-    }else{
-      pushLog(state,"战斗","你一击落空。","info");
-    }
-
-    if(eHp<=0){
-      winBattle();
-      return;
-    }
-
-    // 敌行动
-    const eAtkMul = (enemy.realmIdx>p.realmIdx) ? 1.10 : 1.0;
-    if(rand()<eHit){
-      const dmg = Math.max(1, (enemy.atk*eAtkMul - p.def*pDefMul*0.70)) * (1+diffE);
-      const dealt = Math.floor(dmg + randi(0,10));
-      pHp -= dealt;
-      pushLog(state,"战斗",`敌袭命中，你受伤 -${dealt}。`,"warn");
-    }else{
-      pushLog(state,"战斗","敌袭未中。","info");
-    }
-
-    if(pHp<=0){
-      loseBattle();
-      return;
-    }
-
-    round++;
-    if(round<=3){
-      renderBattle();
-    }else{
-      // 三回合后按血量判胜负
-      if(pHp >= eHp){
-        winBattle(true);
-      }else{
-        loseBattle(true);
-      }
-    }
-  }
-
-  function winBattle(byJudge=false){
-    p.hp = clamp(Math.floor(pHp), 1, p.maxHp);
-    const loot = 60 + randi(0,80) + enemy.realmIdx*40;
-    p.stones += loot;
-    if(rand()<0.35) p.insight += 1;
-    const msg = byJudge ? "三回合后你占得上风，敌人遁走。" : "你击退对手。";
-    pushLog(state,"胜利",`${msg} 灵石 +${loot}。${rand()<0.35?"悟性点 +1。":""}`,"good");
-    recalcStats(state); renderAll();
-  }
-
-  function loseBattle(byJudge=false){
-    p.hp = clamp(Math.floor(pHp), 0, p.maxHp);
-    const injDays = randi(18, 45);
-    p.injury = { type:"重伤", daysLeft: injDays, effMul:0.75, desc:"重伤在身，需疗养（修炼效率降低）" };
-    const loss = Math.min(p.stones, 80 + randi(0,120));
-    p.stones -= loss;
-    p.mind = clamp(p.mind - 1.0, -5, 10);
-    const msg = byJudge ? "三回合后你落于下风，仓促遁走。" : "你被迫败退。";
-    pushLog(state,"败退",`${msg} 失去灵石 -${loss}，并落下【${p.injury.type}】（${injDays}天）。`,"bad");
-    recalcStats(state); renderAll();
-  }
-
-  renderBattle();
-}
-
-// =========================
-// UI
-// =========================
 
 let STATE = null;
 
-function $(id){ return document.getElementById(id); }
-
-function escapeHtml(s){
-  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+/* =========================
+   Core recalculation
+========================= */
+function equippedStats(p){
+  const eq = p.bag.equip;
+  const items = p.bag.items;
+  const byId = new Map(items.map(it=>[it.id,it]));
+  const total = { atk:0, def:0, agi:0, mind:0, cultEff:0, riskMul:1 };
+  for(const slot of ["weapon","armor","acc"]){
+    const id = eq[slot];
+    if(!id) continue;
+    const it = byId.get(id);
+    if(!it) continue;
+    total.atk += it.stats.atk||0;
+    total.def += it.stats.def||0;
+    total.agi += it.stats.agi||0;
+    total.mind += it.stats.mind||0;
+    if(it.extra && it.extra.cultEff) total.cultEff += it.extra.cultEff;
+    if(it.extra && it.extra.riskMul) total.riskMul *= it.extra.riskMul;
+  }
+  total.riskMul = +total.riskMul.toFixed(3);
+  total.cultEff = +total.cultEff.toFixed(3);
+  return total;
 }
 
-function openModal(title, bodyHtml, buttons){
-  $("modalTitle").textContent = title;
-  $("modalBody").innerHTML = bodyHtml;
-  const ft = $("modalFoot");
-  ft.innerHTML = "";
-  (buttons||[]).forEach(b=>{
-    const btn = document.createElement("button");
-    btn.className = b.cls || "btn";
-    btn.textContent = b.text;
-    btn.onclick = b.onClick || (()=>closeModal());
-    ft.appendChild(btn);
-  });
-  $("modalWrap").style.display = "flex";
-}
-function closeModal(){ $("modalWrap").style.display = "none"; }
-
-function stateReplace(s){
-  STATE = s;
-  saveAuto();
-  renderAll();
-}
-
-function saveAuto(){
-  try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(STATE));
-  }catch(e){}
-}
-
-function saveManual(){
-  saveAuto();
-  pushLog(STATE, "存档", "已保存到本地浏览器存储。", "good");
-  renderAll();
-}
-
-function exportSave(state){
-  const data = JSON.stringify(state, null, 2);
-  const blob = new Blob([data], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `xiuzhen_save_${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function importSaveFromFile(file){
-  const fr = new FileReader();
-  fr.onload = ()=>{
-    try{
-      const obj = JSON.parse(fr.result);
-      if(!obj || !obj.player || !obj.time) throw new Error("无效存档");
-      obj.version = VERSION;
-      STATE = obj;
-      ensureWindowsForYear(STATE, getYear(STATE));
-      pushLog(STATE, "导入", "存档导入成功。", "good");
-      recalcStats(STATE);
-      saveAuto();
-      renderAll();
-    }catch(e){
-      alert("导入失败："+e.message);
-    }
+function techMods(p){
+  ensurePlayerTechs(p);
+  const base = getTechById(p.techs.mainId) || TECHNIQUES[0];
+  const mastery = (p.techs.known[p.techs.mainId]?.mastery || 0);
+  const m = 1 + clamp(mastery/1000, 0, 1)*0.18; // mastery gives up to +18% effect
+  return {
+    name: base.name,
+    style: base.style,
+    mastery,
+    cultEff: base.mods.cultEff * m,
+    insEff: base.mods.insEff * m,
+    riskMul: base.mods.riskMul,
+    atkMul: base.mods.atkMul,
+    defMul: base.mods.defMul
   };
-  fr.readAsText(file, "utf-8");
 }
 
-// Tabs
+function recalcStats(state){
+  const p = state.player;
+  const base = baseStatsFor(p.realmIdx, p.stageIdx);
+  const eq = equippedStats(p);
+  const tm = techMods(p);
+
+  p.atk = Math.floor((base.atk + eq.atk) * tm.atkMul);
+  p.def = Math.floor((base.def + eq.def) * tm.defMul);
+  p.agi = Math.floor(base.agi + eq.agi);
+  p.mind= Math.floor(base.mind + eq.mind);
+  p.hpMax = Math.floor(base.hp);
+  p.hp = clamp(p.hp, 1, p.hpMax);
+
+  // cultivation efficiency multiplier
+  p._cultEffMul = (1 + eq.cultEff) * tm.cultEff;
+  p._insEffMul  = tm.insEff;
+  p._riskMulEq  = eq.riskMul * tm.riskMul;
+
+  // alignment
+  state.player._alignLabel = alignLabel(p.align);
+
+  // location label
+  p.world.loc = tileLocText(state);
+}
+
+function tileLocText(state){
+  const map = getMap(state);
+  const t = getTile(state, state.player.world.x, state.player.world.y);
+  if(!t) return "未知";
+  if(t.type==="city") return `城镇·${t.poi.name}`;
+  if(t.type==="sect"){
+    const s = state.world.sects.find(x=>x.id===t.poi.sectId);
+    return `宗门·${s? s.name : "宗门"}`;
+  }
+  if(t.type==="ruin") return `遗迹·${t.poi.name}`;
+  if(t.type==="port") return `港口·${t.poi.name}`;
+  return `野外·${t.poi?.biome || "荒野"}`;
+}
+
+function getMap(state){
+  state.world.maps = state.world.maps || {};
+  const contId = state.player.world.contId;
+  const year = getYear(state);
+  if(!state.world.maps[contId]) state.world.maps[contId]=genContinentMap(contId, year);
+  return state.world.maps[contId];
+}
+function getTile(state,x,y){
+  const map=getMap(state);
+  if(x<0||y<0||x>=map.size||y>=map.size) return null;
+  return map.tiles[y*map.size+x];
+}
+
+/* =========================
+   Combat (lightweight)
+========================= */
+function encounterDifficulty(state){
+  const cont = getContinent(state);
+  const base = stagePower(state.player.realmIdx, state.player.stageIdx);
+  // region variance: 70% near, 20% lower, 10% higher
+  const r = rand();
+  let diff = base;
+  if(r<0.20) diff = Math.max(0, base - randi(1,3));
+  else if(r>0.90) diff = base + randi(2,4);
+  else diff = clamp(base + randi(-1,1), 0, 99);
+  // continent hardship
+  diff = Math.round(diff * cont.mods.risk);
+  return diff;
+}
+
+function resolveFight(state, diff){
+  const p = state.player;
+  const enemyAtk = 8 + diff*4;
+  const enemyDef = 6 + diff*3;
+  const enemyHp  = 40 + diff*20;
+  const pPow = (p.atk*1.2 + p.def + p.agi*0.6 + p.mind*0.6);
+  const ePow = (enemyAtk*1.1 + enemyDef + diff*8);
+  const ratio = pPow / (ePow+1e-6);
+  const winChance = clamp(0.35 + 0.25*Math.log(ratio+1), 0.05, 0.95);
+  const roll = rand();
+  if(roll < winChance){
+    // win: maybe item, stones, insight
+    const gainStone = randi(30, 80) + diff*12;
+    const gainIns = randi(1,3) + Math.floor(diff/5);
+    p.stones += gainStone;
+    p.insight += gainIns;
+    if(rand() < 0.28){
+      const it = genItem(state, "battle");
+      p.bag.items.push(it);
+      pushLog(state, "战斗", `你击败对手（难度${diff}），战利品：+${gainStone}灵石，+${gainIns}悟性，并获得【${it.name}】。`, "good");
+    }else{
+      pushLog(state, "战斗", `你击败对手（难度${diff}），战利品：+${gainStone}灵石，+${gainIns}悟性。`, "good");
+    }
+  }else{
+    // lose: wound, time loss, maybe stolen stones
+    const wound = randi(10,25) + Math.floor(diff/2);
+    p.status.wound += wound;
+    const lost = Math.min(p.stones, randi(20,70)+diff*8);
+    p.stones -= lost;
+    // forced retreat consumes days
+    advanceDays(state, randi(3,12), { silent:true });
+    pushLog(state, "战斗", `你不敌对手（难度${diff}），受伤+${wound}，损失灵石-${lost}，且仓促撤离耗费数日。`, "bad");
+  }
+  normalizeStatus(state);
+}
+
+/* =========================
+   Time advance, healing & windows
+========================= */
+function normalizeStatus(state){
+  const p = state.player;
+  p.status.wound = clamp(p.status.wound, 0, 9999);
+  p.status.inner = clamp(p.status.inner, 0, 9999);
+  p.status.demonMark = clamp(p.status.demonMark, 0, 9999);
+  p.status.unstableDays = clamp(p.status.unstableDays, 0, 9999);
+  // healing tick: daily
+}
+
+function tickDay(state){
+  const p = state.player;
+  p.life.ageDays += 1;
+  // passive healing
+  if(p.status.wound>0) p.status.wound -= 1;
+  if(p.status.inner>0 && rand()<0.5) p.status.inner -= 1;
+  if(p.status.unstableDays>0 && rand()<0.7) p.status.unstableDays -= 1;
+
+  // if life ends
+  if(lifeLeftDays(state)<=0){
+    state._gameOver = true;
+    pushLog(state, "系统", "寿元已尽，你的故事在此终结。", "bad");
+  }
+}
+
+function advanceDays(state, days, opts={}){
+  const silent=!!opts.silent;
+  if(days<=0||state._gameOver) return;
+  const startAbs = state.time.dayAbs;
+  const endAbs = startAbs + days;
+
+  for(let i=0;i<days;i++){
+    state.time.dayAbs += 1;
+    tickDay(state);
+    if(state._gameOver) break;
+    // generate windows for new year boundary
+    const y = getYear(state);
+    ensureWindowsForYear(state, y);
+  }
+
+  // discover current tile
+  const tile = getTile(state, state.player.world.x, state.player.world.y);
+  if(tile) tile.discovered = true;
+
+  if(!silent){
+    pushLog(state, "时光", `时光流逝：+${days}天。`, "info");
+  }
+  recalcStats(state);
+}
+
+function missWindowsBetween(state, aAbs, bAbs, mitigation=0){
+  // summarize missed windows within period; claim by NPCs
+  const wins = (state.world.windows||[]).filter(w=>w.startAbs>=aAbs && w.endAbs<=bAbs);
+  const missed = [];
+  for(const w of wins){
+    // chance you still get partial via agent mitigation
+    const effectiveMiss = clamp(1 - mitigation, 0, 1);
+    if(rand() < effectiveMiss){
+      // NPC claims
+      const npc = genNpcClaim(state, w);
+      w.claimedBy = npc;
+      missed.push(w);
+    }
+  }
+  return missed;
+}
+
+function genNpcClaim(state, w){
+  const pool = ["散修","邪修","游侠","宗门弟子","商会"];
+  const names = ["陆","沈","唐","秦","韩","楚","苏","叶","林","顾","夏","白","温","宁","纪"];
+  const given = ["玄","青","岳","霜","炎","灵","澜","清","无尘","墨","烬","星河","归一"];
+  const name = pick(names)+pick(given);
+  const diff = randi(0,2);
+  return { name, faction: pick(pool), diff };
+}
+
+/* =========================
+   Cultivation / Retreat
+========================= */
+function baseRiskByDays(days){
+  if(days<=30) return { fire:0.01, demon:0.02 };
+  if(days<=360) return { fire:0.03, demon:0.05 };
+  return { fire:0.06, demon:0.08 }; // 10y
+}
+
+function retreat(state, plan){
+  const p = state.player;
+  if(state._gameOver) return;
+
+  const env = ENVIRONMENTS.find(e=>e.id===plan.envId) || ENVIRONMENTS[0];
+  const supply = SUPPLIES.find(s=>s.id===plan.supplyId) || SUPPLIES[0];
+  const policy = DEMON_POLICY.find(x=>x.id===plan.demonPolicyId) || DEMON_POLICY[0];
+  const agent = AGENT_TASKS.find(a=>a.id===plan.agentId) || AGENT_TASKS[0];
+  const days = plan.days;
+
+  // pay cost
+  const totalCost = env.costStone + supply.cost;
+  if(p.stones < totalCost){
+    pushLog(state, "系统", `灵石不足：需要${totalCost}，当前${p.stones}。`, "bad");
+    return;
+  }
+  p.stones -= totalCost;
+
+  // compute multipliers
+  const woundPenalty = 1 - clamp(p.status.wound/220, 0, 0.45);
+  const innerPenalty = 1 - clamp(p.status.inner/260, 0, 0.35);
+  const unstablePenalty = 1 - (p.status.unstableDays>0 ? 0.18 : 0);
+
+  const base = baseRiskByDays(days);
+  let fireRisk = base.fire;
+  let demonRisk = base.demon;
+
+  // age penalty (older -> more demon risk)
+  const age = ageYears(state);
+  if(age>60) demonRisk += 0.02;
+  if(age>90) demonRisk += 0.03;
+
+  // alignment swing and demon mark
+  demonRisk += clamp(p.status.demonMark/1200, 0, 0.12);
+
+  // apply env/supply/policy/gear/tech
+  const supplyMods = supply.mods || {};
+  fireRisk *= (supplyMods.fireRiskMul || 1);
+  demonRisk *= (supplyMods.demonRiskMul || 1);
+
+  fireRisk *= env.risk;
+  demonRisk *= env.risk;
+
+  fireRisk *= p._riskMulEq;
+  demonRisk *= p._riskMulEq;
+
+  // ensure reasonable
+  fireRisk = clamp(fireRisk, 0.002, 0.25);
+  demonRisk = clamp(demonRisk, 0.004, 0.35);
+
+  // XP gains
+  const k = stagePower(p.realmIdx, p.stageIdx);
+  const cont = getContinent(state);
+  const timeEff = days<=30? 1.0 : days<=360? 1.1 : 1.12; // long retreat slightly steadier
+  const cultGain = Math.floor(days * (1.2 + k*0.22) * env.eff * p._cultEffMul * woundPenalty * innerPenalty * unstablePenalty * timeEff);
+  const techGain = Math.floor(days * (0.8 + k*0.12) * env.eff * (0.9 + p.mind/100) * timeEff);
+
+  // insight gain: long retreat gives some, but main source is outside; still meaningful
+  const baseIns = days<=30? 0 : days<=360? 2 : 6;
+  const insGain = Math.floor((baseIns + Math.sqrt(days)/7) * cont.mods.res * p._insEffMul);
+
+  // advance time day by day but without log spam
+  const startAbs = state.time.dayAbs;
+  advanceDays(state, days, { silent:true });
+  const endAbs = state.time.dayAbs;
+
+  if(state._gameOver) return;
+
+  // apply gains
+  p.xp += cultGain;
+  p.insight += insGain;
+  // technique mastery
+  ensurePlayerTechs(p);
+  const mainId = p.techs.mainId;
+  p.techs.known[mainId].mastery = clamp((p.techs.known[mainId].mastery||0) + Math.floor(techGain/10), 0, 1000);
+
+  // risks resolve (single roll per retreat)
+  let hadFire=false, hadDemon=false;
+  if(rand() < fireRisk){
+    hadFire=true;
+    const wound = randi(18,45) + Math.floor(k*1.2);
+    p.status.wound += wound;
+    p.status.inner += Math.floor(wound*0.6);
+  }
+  if(rand() < demonRisk){
+    hadDemon=true;
+    // resolve via policy: determine win/lose with mind vs k
+    const diff = Math.max(0, k + (age>80?1:0) + (p.status.demonMark>0?1:0));
+    const mindPow = p.mind + (p.insight/20);
+    const chance = clamp(0.45 + (mindPow - diff*10)/120, 0.15, 0.85);
+    const win = rand() < chance;
+    if(win){
+      p.insight += 6 + policy.mods.insOnWin;
+      // reduce demon mark
+      if(p.status.demonMark>0) p.status.demonMark = Math.max(0, p.status.demonMark - randi(4,10));
+    }else{
+      // penalty: mark or wound, scaled by policy
+      const mul = policy.mods.loseMul || 1;
+      const addMark = Math.round(randi(6,16)*mul);
+      p.status.demonMark += addMark;
+      p.status.wound += Math.round(randi(6,20)*mul);
+      if(rand() < (policy.mods.markChance||0)){
+        p.status.demonMark += randi(6,14);
+      }
+    }
+  }
+
+  // missed windows (for 10y mainly)
+  let chronicle = null;
+  if(days>=3600){
+    const mitig = clamp(agent.mods.missMitigation||0, 0, 0.6);
+    const missed = missWindowsBetween(state, startAbs, endAbs, mitig);
+    const lines = [];
+    lines.push(`【十年大事记】你闭关十年出关。修为精进，但世事更迭。`);
+    if(agent.id!=="none"){
+      lines.push(`代理人：${agent.name}（错过损失减免${Math.round(mitig*100)}%）。`);
+    }
+    if(missed.length===0){
+      lines.push("这十年，你未明显错过关键窗口（或已被代理人妥善处理）。");
+    }else{
+      for(const w of missed.slice(0,10)){
+        const npc = w.claimedBy;
+        lines.push(`- ${w.desc}｜被${npc.faction}「${npc.name}」夺得先机。`);
+        // create rival with small chance
+        if(rand()<0.30){
+          state.world.npcs.rivals.push({ name:npc.name, contId:w.contId, power: encounterDifficulty(state), hatred:randi(10,30) });
+        }
+      }
+      if(missed.length>10) lines.push(`（还有${missed.length-10}条大事略过）`);
+    }
+    // agent bonus
+    if(agent.mods.bonusStone) p.stones += agent.mods.bonusStone;
+    if(agent.mods.sectContrib && p.sect.joined) p.sect.contrib += agent.mods.sectContrib;
+    chronicle = lines.join("\n");
+    state.world.lastChronicle = { startAbs, endAbs, text: chronicle };
+  }else{
+    // small agent bonuses for shorter retreats
+    if(agent.mods.bonusStone && days>=360) p.stones += Math.floor(agent.mods.bonusStone*0.5);
+    if(agent.mods.sectContrib && p.sect.joined && days>=360) p.sect.contrib += Math.floor(agent.mods.sectContrib*0.4);
+  }
+
+  // update xpNeed
+  p.xpNeed = xpNeed(p.realmIdx, p.stageIdx);
+  normalizeStatus(state);
+  recalcStats(state);
+
+  // log summary
+  const riskNote = `走火${percent(fireRisk)}｜心魔${percent(demonRisk)}`;
+  let msg = `闭关结算：+修为${cultGain}，+悟性${insGain}，主功法熟练提升。费用-${totalCost}灵石。风险：${riskNote}。`;
+  if(hadFire) msg += "（触发走火：伤势加重）";
+  if(hadDemon) msg += "（心魔来袭：已结算）";
+  pushLog(state, "闭关", msg, hadFire||hadDemon ? "warn":"good");
+  if(chronicle){
+    pushLog(state, "纪元", chronicle.replace(/\n/g,"<br>"), "info_html");
+  }
+}
+
+/* =========================
+   Breakthrough
+========================= */
+function prepScore(state){
+  const p = state.player;
+  const map = getMap(state);
+  const tile = getTile(state, p.world.x, p.world.y);
+  let score = 0;
+  // XP fullness
+  const ratio = p.xp / (p.xpNeed||1);
+  if(ratio>=1.15) score+=3;
+  else if(ratio>=1.0) score+=2;
+  else if(ratio>=0.85) score+=1;
+
+  // technique mastery
+  const mastery = techMods(p).mastery;
+  if(mastery>=700) score+=2;
+  else if(mastery>=350) score+=1;
+
+  // insight reserve
+  if(p.insight>=80) score+=2;
+  else if(p.insight>=35) score+=1;
+
+  // status penalties
+  if(p.status.wound>40) score-=1;
+  if(p.status.inner>35) score-=1;
+  if(p.status.demonMark>30) score-=1;
+  if(p.status.unstableDays>0) score-=1;
+
+  // environment: sect tile or ley gives bonus
+  if(tile && (tile.type==="sect"||tile.type==="city")) score+=1;
+
+  // bag stabilizePow (from future items)
+  if(p.bag.stabilizePow) score += Math.floor(p.bag.stabilizePow/20);
+
+  score = clamp(score, 0, 9);
+  const label = score<=2 ? "低" : score<=4 ? "中" : score<=6 ? "高" : "极高";
+  return { score, label };
+}
+
+function successChanceFromPrep(prep){
+  // tuned to "delay cost": low still possible but not comfortable
+  const s = prep.score;
+  if(s<=2) return { lo:0.25, hi:0.45 };
+  if(s<=4) return { lo:0.45, hi:0.65 };
+  if(s<=6) return { lo:0.65, hi:0.82 };
+  return { lo:0.82, hi:0.93 };
+}
+
+function doBreakthrough(state, spendInsight=0, useStabil=false){
+  const p = state.player;
+  if(state._gameOver) return;
+  // check if at max
+  if(p.realmIdx>=REALMS.length-1 && p.stageIdx>=REALMS[p.realmIdx].stages.length-1){
+    pushLog(state, "突破", "你已臻至此界极限（MVP上限）。", "info");
+    return;
+  }
+
+  const prep = prepScore(state);
+  const ch = successChanceFromPrep(prep);
+
+  // use insight to boost within range
+  const spend = clamp(spendInsight, 0, Math.min(p.insight, 120));
+  p.insight -= spend;
+  const boost = spend/200; // up to +60%? actually 120/200=0.6 but clamp later
+  const stabMul = useStabil ? 0.6 : 1.0;
+
+  let chance = clamp(ch.lo + (ch.hi-ch.lo)*0.55 + boost*0.20, 0.05, 0.98);
+  // penalties
+  chance -= clamp(p.status.demonMark/400, 0, 0.18);
+  chance -= clamp(p.status.wound/500, 0, 0.12);
+  chance -= (p.status.unstableDays>0 ? 0.10 : 0);
+
+  chance = clamp(chance, 0.05, 0.98);
+
+  const roll = rand();
+  if(roll < chance){
+    // success
+    // advance stage or realm
+    const oldRealm = p.realmIdx;
+    const oldStage = p.stageIdx;
+    if(p.stageIdx < REALMS[p.realmIdx].stages.length-1){
+      p.stageIdx += 1;
+    }else{
+      p.realmIdx += 1;
+      p.stageIdx = 0;
+      // life cap and rejuvenation
+      const cap = REALMS[p.realmIdx].lifeCapYears * DAYS_PER_YEAR;
+      p.life.capDays = Math.max(p.life.capDays, cap);
+      const rej = REALMS[p.realmIdx].rejuvenateYears * DAYS_PER_YEAR;
+      p.life.ageDays = Math.max(0, p.life.ageDays - rej);
+      pushLog(state, "寿元", `大境界突破：寿元上限提升至${REALMS[p.realmIdx].lifeCapYears}年，并回春${REALMS[p.realmIdx].rejuvenateYears}年。`, "good");
+    }
+    p.xp = Math.max(0, p.xp - Math.floor(p.xpNeed*0.95));
+    p.xpNeed = xpNeed(p.realmIdx, p.stageIdx);
+    // unstable period
+    p.status.unstableDays = randi(12, 35) + p.realmIdx*8;
+    pushLog(state, "突破", `突破成功：${realmText(p)}。进入巩固期（${p.status.unstableDays}天）。`, "good");
+  }else{
+    // fail: delay cost, gentle but meaningful
+    const failKind = rand();
+    const penaltyMul = stabMul;
+    if(failKind < 0.45){
+      // unstable -> longer
+      const add = Math.round((randi(12, 28) + p.realmIdx*6) * penaltyMul);
+      p.status.unstableDays += add;
+      pushLog(state, "突破", `突破失败：气息紊乱，巩固期延长${add}天。`, "warn");
+    }else if(failKind < 0.80){
+      // wound
+      const w = Math.round((randi(10, 24) + p.realmIdx*6) * penaltyMul);
+      p.status.wound += w;
+      pushLog(state, "突破", `突破失败：经脉受创，伤势+${w}。`, "warn");
+    }else{
+      // demon mark
+      const m = Math.round((randi(8, 18) + p.realmIdx*4) * penaltyMul);
+      p.status.demonMark += m;
+      pushLog(state, "突破", `突破失败：心境不稳，心魔印记+${m}。`, "warn");
+    }
+    // some time passes
+    advanceDays(state, randi(5,18), { silent:true });
+  }
+
+  normalizeStatus(state);
+  recalcStats(state);
+}
+
+/* =========================
+   Map actions
+========================= */
+function move(state, dx, dy){
+  if(state._gameOver) return;
+  const map = getMap(state);
+  const nx = state.player.world.x + dx;
+  const ny = state.player.world.y + dy;
+  if(nx<0||ny<0||nx>=map.size||ny>=map.size){
+    pushLog(state, "探索", "此路不通。", "info");
+    return;
+  }
+  state.player.world.x = nx;
+  state.player.world.y = ny;
+  const tile = getTile(state, nx, ny);
+  tile.discovered = true;
+  // moving consumes 1-3 days depending on terrain
+  const biome = tile.poi?.biome || "平原";
+  let cost = 2;
+  if(biome==="山地"||biome==="密林"||biome==="雪原") cost=3;
+  if(tile.type==="city"||tile.type==="sect"||tile.type==="port") cost=1;
+  advanceDays(state, cost, { silent:true });
+  pushLog(state, "探索", `你前往新的区域（耗时${cost}天）：${tileLocText(state)}。`, "info");
+  // chance encounter in wild/ruin
+  if(tile.type==="wild" && rand()<0.22*getContinent(state).mods.risk){
+    const diff = encounterDifficulty(state);
+    pushLog(state, "遭遇", `野外遭遇不速之客（难度${diff}）。`, "warn");
+    resolveFight(state, diff);
+  }
+  if(tile.type==="ruin" && rand()<0.45){
+    exploreRuin(state);
+  }
+  recalcStats(state);
+}
+
+function exploreHere(state){
+  const tile = getTile(state, state.player.world.x, state.player.world.y);
+  if(!tile) return;
+  if(tile.type==="city"){
+    pushLog(state, "城镇", "你在城镇休整，补给齐全。可以购买装备/功法、疗伤、打听消息。", "good");
+    // city rest heals
+    const p=state.player;
+    const days=3;
+    advanceDays(state, days, { silent:true });
+    p.status.wound = Math.max(0, p.status.wound - 12);
+    p.status.inner = Math.max(0, p.status.inner - 10);
+    pushLog(state, "城镇", `休整${days}天，伤势有所恢复。`, "good");
+  }else if(tile.type==="sect"){
+    const sect = state.world.sects.find(s=>s.id===tile.poi.sectId);
+    if(!sect){ pushLog(state,"宗门","宗门信息缺失。","warn"); return; }
+    pushLog(state, "宗门", `你来到${sect.name}（${TIER_LABEL[sect.tier]}·${ALIGN_LABEL[sect.align]}）。可尝试加入、接差事、翻阅藏经。`, "info");
+  }else if(tile.type==="ruin"){
+    exploreRuin(state);
+  }else if(tile.type==="port"){
+    pushLog(state, "港口", "此处可渡界前往其他大陆（耗时30天并支付费用）。", "info");
+  }else{
+    // wild exploration for resources
+    const p=state.player;
+    const cont=getContinent(state);
+    const days=7;
+    advanceDays(state, days, { silent:true });
+    const gainStone = Math.floor((randi(20,60) + stagePower(p.realmIdx,p.stageIdx)*10) * cont.mods.res);
+    const gainIns = Math.floor((randi(0,2) + (rand()<0.25?1:0)) * p._insEffMul);
+    p.stones += gainStone;
+    p.insight += gainIns;
+    if(rand()<0.22*cont.mods.res){
+      const it = genItem(state, "gather");
+      p.bag.items.push(it);
+      pushLog(state, "探索", `野外探索${days}天：+${gainStone}灵石，+${gainIns}悟性，并获得【${it.name}】。`, "good");
+    }else{
+      pushLog(state, "探索", `野外探索${days}天：+${gainStone}灵石，+${gainIns}悟性。`, "good");
+    }
+    if(rand()<0.18*cont.mods.risk){
+      const diff=encounterDifficulty(state);
+      pushLog(state, "遭遇", `探索途中遭遇敌人（难度${diff}）。`, "warn");
+      resolveFight(state, diff);
+    }
+  }
+  normalizeStatus(state);
+  recalcStats(state);
+}
+
+function exploreRuin(state){
+  const p=state.player;
+  const cont=getContinent(state);
+  const days=randi(7,18);
+  advanceDays(state, days, { silent:true });
+  const diff = encounterDifficulty(state) + randi(0,2);
+  if(rand()<0.65){
+    pushLog(state,"遗迹",`你在遗迹中触发守关（难度${diff}）。`,"warn");
+    resolveFight(state, diff);
+  }
+  const gainIns = Math.floor((randi(3,8) + Math.floor(diff/6)) * p._insEffMul);
+  p.insight += gainIns;
+  const gainStone = Math.floor((randi(40,120) + diff*18) * cont.mods.res);
+  p.stones += gainStone;
+  // chance learn technique fragment
+  if(rand()<0.22){
+    const t = learnRandomTechnique(state);
+    if(t){
+      pushLog(state, "遗迹", `你从残卷中领悟新功法：【${t.name}】。`, "good");
+    }
+  }
+  // loot
+  const it = genItem(state, "ruin");
+  p.bag.items.push(it);
+  pushLog(state, "遗迹", `遗迹探索${days}天：+${gainStone}灵石，+${gainIns}悟性，获得【${it.name}】。`, "good");
+}
+
+/* =========================
+   Sect actions
+========================= */
+function currentSectTile(state){
+  const tile = getTile(state, state.player.world.x, state.player.world.y);
+  if(tile && tile.type==="sect"){
+    return state.world.sects.find(s=>s.id===tile.poi.sectId) || null;
+  }
+  return null;
+}
+
+function tryJoinCurrentSect(state){
+  const p=state.player;
+  const sect = currentSectTile(state);
+  if(!sect){ pushLog(state,"宗门","你不在宗门驻地。","warn"); return; }
+  if(p.sect.joined){
+    pushLog(state,"宗门",`你已在${p.sect.name}修行。暂不支持同时加入多个宗门。`,"info");
+    return;
+  }
+  if(p.realmIdx < sect.realmReq){
+    pushLog(state,"宗门",`境界不足：${TIER_LABEL[sect.tier]}宗门要求至少${REALMS[sect.realmReq].name}。`,"bad");
+    return;
+  }
+  const fame = p.sect.fame || 0;
+  if(fame < sect.fameReq){
+    pushLog(state,"宗门",`名望不足：需要${sect.fameReq}，当前${fame}。可通过探索/击败强敌/完成委托提升。`,"warn");
+    return;
+  }
+  if(p.stones < sect.joinFee){
+    pushLog(state,"宗门",`入门费不足：需要${sect.joinFee}灵石。`,"bad");
+    return;
+  }
+
+  // alignment gate (soft): if too opposite, harder
+  let gate = 0;
+  const al = p.align;
+  if(sect.align==="righteous" && al<-40) gate = 1;
+  if(sect.align==="evil" && al>40) gate = 1;
+
+  p.stones -= sect.joinFee;
+  advanceDays(state, randi(7,18), { silent:true });
+  const passChance = gate? 0.45 : 0.70;
+  if(rand() < passChance){
+    p.sect = { joined:true, sectId:sect.id, name:sect.name, tier:sect.tier, align:sect.align, fame:Math.max(p.sect.fame||0, sect.fameReq), contrib:0 };
+    pushLog(state,"宗门",`你通过入门考核，正式加入【${sect.name}】。`,"good");
+    // reward: maybe technique
+    if(rand()<sect.libraryTechChance){
+      const t = learnRandomTechnique(state);
+      if(t) pushLog(state,"宗门",`藏经阁中，你习得【${t.name}】。`,"good");
+    }
+  }else{
+    pushLog(state,"宗门",`入门考核失利。你被安排在外门历练一段时日。`,"warn");
+    p.sect.fame = (p.sect.fame||0) + 10;
+  }
+  recalcStats(state);
+}
+
+function sectChore(state){
+  const p=state.player;
+  if(!p.sect.joined){ pushLog(state,"宗门","你尚未加入宗门。","warn"); return; }
+  const days=30;
+  advanceDays(state, days, { silent:true });
+  const tier=p.sect.tier;
+  const gain = tier==="t1"? 320 : tier==="t2"? 220 : 140;
+  p.stones += gain;
+  p.sect.contrib += tier==="t1"? 60 : tier==="t2"? 45 : 30;
+  // fame
+  p.sect.fame = (p.sect.fame||0) + 8;
+  pushLog(state,"宗门",`你完成宗门差事${days}天：+${gain}灵石，贡献+${tier==="t1"?60:tier==="t2"?45:30}，名望小幅提升。`,"good");
+  // chance learn technique in library
+  if(rand()< (tier==="t1"?0.25:tier==="t2"?0.18:0.12)){
+    const t=learnRandomTechnique(state);
+    if(t) pushLog(state,"宗门",`你在差事间隙研读藏经，习得【${t.name}】。`,"good");
+  }
+  recalcStats(state);
+}
+
+function leaveSect(state){
+  const p=state.player;
+  if(!p.sect.joined){ pushLog(state,"宗门","你未加入宗门。","info"); return; }
+  pushLog(state,"宗门",`你离开了【${p.sect.name}】。短期内名望会受影响。`,"warn");
+  p.sect.joined=false;
+  p.sect.sectId="";
+  p.sect.name="";
+  p.sect.tier="";
+  p.sect.align="";
+  p.sect.contrib=0;
+  p.sect.fame = Math.max(0, (p.sect.fame||0)-30);
+  recalcStats(state);
+}
+
+/* =========================
+   Shop (city)
+========================= */
+function inCity(state){
+  const t=getTile(state, state.player.world.x, state.player.world.y);
+  return !!t && t.type==="city";
+}
+function buyRandomItem(state){
+  if(!inCity(state)){ pushLog(state,"商会","你需要在城镇才能交易。","warn"); return; }
+  const p=state.player;
+  const it=genItem(state, "shop");
+  const price=it.price;
+  if(p.stones<price){
+    pushLog(state,"商会",`灵石不足：需要${price}。`,"bad"); return;
+  }
+  p.stones-=price;
+  p.bag.items.push(it);
+  pushLog(state,"商会",`你购得【${it.name}】（${price}灵石）。`,"good");
+  recalcStats(state);
+}
+function buyTechniqueScroll(state){
+  if(!inCity(state)){ pushLog(state,"商会","你需要在城镇才能购买功法。","warn"); return; }
+  const p=state.player;
+  ensurePlayerTechs(p);
+  const t = learnRandomTechnique(state);
+  if(!t){
+    pushLog(state,"商会","市面上暂时没有你未学过的功法。","info"); return;
+  }
+  const price = Math.floor((260 + stagePower(p.realmIdx,p.stageIdx)*40) * getContinent(state).mods.price);
+  if(p.stones<price){
+    // rollback learning if can't pay
+    delete p.techs.known[t.id];
+    pushLog(state,"商会",`灵石不足：购买功法需要${price}。`,"bad"); return;
+  }
+  p.stones-=price;
+  pushLog(state,"商会",`你购得功法残卷并习得【${t.name}】（${price}灵石）。`,"good");
+  recalcStats(state);
+}
+
+/* =========================
+   Travel between continents
+========================= */
+function canTravelPort(state){
+  const t=getTile(state, state.player.world.x, state.player.world.y);
+  return t && t.type==="port";
+}
+function travelToContinent(state, targetId){
+  if(!canTravelPort(state)){
+    pushLog(state,"渡界","你需要在港口（渡界港）才能前往其他大陆。","warn"); return;
+  }
+  const p=state.player;
+  const fee = Math.floor(420 * getContinent(state).mods.price);
+  if(p.stones < fee){
+    pushLog(state,"渡界",`灵石不足：渡界费用${fee}。`,"bad"); return;
+  }
+  p.stones -= fee;
+  const days = 30;
+  const from = getContinent(state).name;
+  advanceDays(state, days, { silent:true });
+  p.world.contId = targetId;
+  // put at port of new continent
+  const map = getMap(state);
+  // find port tile
+  const portTile = map.tiles.find(t=>t.type==="port") || map.tiles[0];
+  p.world.x = portTile.x; p.world.y=portTile.y;
+  portTile.discovered=true;
+  pushLog(state,"渡界",`你从${from}渡界前往${CONTINENTS.find(c=>c.id===targetId).name}（耗时${days}天，费用${fee}）。`,"info");
+  recalcStats(state);
+}
+
+/* =========================
+   Inventory / Equipment actions
+========================= */
+function equipItem(state, itemId){
+  const p=state.player;
+  const it = p.bag.items.find(x=>x.id===itemId);
+  if(!it) return;
+  p.bag.equip[it.slot] = itemId;
+  pushLog(state,"装备",`你装备了【${it.name}】。`,"good");
+  recalcStats(state);
+}
+function unequipSlot(state, slot){
+  const p=state.player;
+  if(p.bag.equip[slot]){
+    p.bag.equip[slot]=null;
+    pushLog(state,"装备",`你卸下了${ITEM_SLOTS.find(s=>s.id===slot).name}。`,"info");
+    recalcStats(state);
+  }
+}
+function sellItem(state, itemId){
+  const p=state.player;
+  if(!inCity(state)){ pushLog(state,"商会","卖出需要在城镇。","warn"); return; }
+  const idx = p.bag.items.findIndex(x=>x.id===itemId);
+  if(idx<0) return;
+  const it = p.bag.items[idx];
+  // cannot sell equipped directly (auto unequip)
+  for(const slot of ["weapon","armor","acc"]){
+    if(p.bag.equip[slot]===itemId) p.bag.equip[slot]=null;
+  }
+  const price = Math.floor(it.price*0.45);
+  p.stones += price;
+  p.bag.items.splice(idx,1);
+  pushLog(state,"商会",`你卖出【${it.name}】，获得${price}灵石。`,"good");
+  recalcStats(state);
+}
+
+function setMainTech(state, techId){
+  const p=state.player;
+  ensurePlayerTechs(p);
+  if(!p.techs.known[techId]){ pushLog(state,"功法","你尚未学会此功法。","warn"); return; }
+  p.techs.mainId = techId;
+  pushLog(state,"功法",`你将主修功法设为【${getTechById(techId).name}】。`,"info");
+  recalcStats(state);
+}
+
+/* =========================
+   Render
+========================= */
 const TABS = [
   { id:"cultivate", name:"修炼/闭关" },
   { id:"break", name:"突破" },
   { id:"explore", name:"地图探索" },
   { id:"sect", name:"宗门" },
-  { id:"bag", name:"背包/设置" },
+  { id:"bag", name:"背包/装备" },
 ];
 
 function renderTabs(){
@@ -1514,94 +1797,43 @@ function renderTabs(){
 
 function renderTop(){
   $("nowText").textContent = dateText(STATE);
-  $("locText").textContent = `${REGIONS.find(r=>r.id===STATE.player.world.regionId)?.name ?? "未知"} · ${STATE.player.world.loc}`;
+  const cont = getContinent(STATE);
+  $("locText").textContent = `${cont.name} · ${STATE.player.world.loc}`;
   $("lifeText").textContent = lifeText(STATE);
 }
 
-function alignTag(val){
-  if(val>=40) return {txt:"正", cls:"good"};
-  if(val<=-40) return {txt:"邪", cls:"bad"};
-  return {txt:"中立", cls:""};
-}
-
 function renderChar(){
-  const p=STATE.player;
-  $("realmText").textContent = realmName(STATE);
+  const p = STATE.player;
+  $("realmText").textContent = realmText(p);
+  $("xpText").textContent = `${fmt(p.xp)} / ${fmt(p.xpNeed)}`;
+  $("xpBar").style.width = `${clamp(p.xp/(p.xpNeed||1),0,1)*100}%`;
 
-  const xpPct = clamp(p.xp/p.xpNeed, 0, 1);
-  $("xpText").textContent = `${fmt(p.xp)}/${fmt(p.xpNeed)} (${Math.round(xpPct*100)}%)`;
-  $("xpBar").style.width = `${Math.round(xpPct*100)}%`;
+  const tm = techMods(p);
+  $("techText").textContent = `${tm.name}（熟练${tm.mastery}/1000）`;
+  $("techBar").style.width = `${clamp(tm.mastery/1000,0,1)*100}%`;
 
-  const techPct = clamp(p.tech/1000, 0, 1);
-  $("techText").textContent = `${Math.round(p.tech)}/1000`;
-  $("techBar").style.width = `${Math.round(techPct*100)}%`;
-
-  const hpPct = clamp(p.hp/p.maxHp, 0, 1);
-  $("hpText").textContent = `${Math.round(p.hp)}/${Math.round(p.maxHp)}`;
-  $("hpBar").style.width = `${Math.round(hpPct*100)}%`;
+  $("hpText").textContent = `${fmt(p.hp)} / ${fmt(p.hpMax)}`;
+  $("hpBar").style.width = `${clamp(p.hp/(p.hpMax||1),0,1)*100}%`;
 
   $("stoneText").textContent = fmt(p.stones);
   $("insText").textContent = fmt(p.insight);
-  $("atkText").textContent = Math.round(p.atk);
-  $("defText").textContent = Math.round(p.def);
-  $("agiText").textContent = Math.round(p.agi);
-  $("mindText").textContent = p.mind.toFixed(1);
 
-  const age = ageYears(STATE);
-  const hint = `年龄 ${age.toFixed(1)} 岁｜${p.sect.joined ? ("宗门："+p.sect.name+"（声望"+p.sect.fame+"）") : "散修"}｜版本 ${VERSION}`;
-  $("charHint").textContent = hint;
+  $("atkText").textContent = fmt(p.atk);
+  $("defText").textContent = fmt(p.def);
+  $("agiText").textContent = fmt(p.agi);
+  $("mindText").textContent = fmt(p.mind);
 
-  const at = alignTag(p.align);
-  $("tagAlign").textContent = at.txt;
-  $("tagAlign").className = "tag " + at.cls;
+  $("tagAlign").textContent = p._alignLabel;
+  $("tagAlign").className = "tag " + (p._alignLabel==="正道"?"good":p._alignLabel==="魔道"?"bad":"");
 
-  // 状态
-  const st = [];
-  if(p.injury) st.push(`伤势：${p.injury.type}（${p.injury.daysLeft}天）`);
-  if(p.unstableDays>0) st.push(`境界不稳（${p.unstableDays}天）`);
-  if(p.demonMark>0) st.push(`心魔印记×${p.demonMark}`);
-  if(st.length===0) st.push("良好");
-
-  $("statusText").textContent = st.join("，");
-  const desc = [];
-  if(p.injury) desc.push(`• ${p.injury.desc}`);
-  if(p.unstableDays>0) desc.push("• 境界不稳会轻微降低修炼与战斗表现，可通过时间巩固或闭关巩固。");
-  if(p.demonMark>0) desc.push("• 心魔印记会提高心魔事件概率，也会轻微降低突破准备度。");
-  if(desc.length===0) desc.push("• 气机圆融，可择机闭关或出门探索机缘。");
-  $("statusDesc").textContent = desc.join("\n");
-}
-
-function renderUpcoming(){
-  $("upcomingText").textContent = upcomingText(STATE);
-}
-
-function renderLog(){
-  const per = 12;
-  const total = STATE.log.length;
-  const pages = Math.max(1, Math.ceil(total/per));
-  STATE.ui.logPage = clamp(STATE.ui.logPage, 0, pages-1);
-
-  const start = STATE.ui.logPage*per;
-  const slice = STATE.log.slice(start, start+per);
-
-  const wrap = $("logList");
-  wrap.innerHTML = "";
-  for(const e of slice){
-    const div = document.createElement("div");
-    div.className = "entry";
-    const tag = toneTag(e.tone);
-    div.innerHTML = `
-      <div class="meta">
-        <div class="t">${escapeHtml(e.t)}</div>
-        <div class="k"><span class="tag ${tag}">${escapeHtml(e.kind)}</span></div>
-      </div>
-      <div class="txt">${escapeHtml(e.text)}</div>`;
-    wrap.appendChild(div);
-  }
-
-  $("pageInfo").textContent = `第 ${STATE.ui.logPage+1} / ${pages} 页（共 ${total} 条）`;
-  $("btnPrev").disabled = STATE.ui.logPage<=0;
-  $("btnNext").disabled = STATE.ui.logPage>=pages-1;
+  const statusBits = [];
+  if(p.status.wound>0) statusBits.push(`伤势${p.status.wound}`);
+  if(p.status.inner>0) statusBits.push(`内伤${p.status.inner}`);
+  if(p.status.demonMark>0) statusBits.push(`心魔印记${p.status.demonMark}`);
+  if(p.status.unstableDays>0) statusBits.push(`巩固${p.status.unstableDays}天`);
+  $("statusText").textContent = statusBits.length? statusBits.join(" · "):"状态良好";
+  $("statusDesc").textContent = p.sect.joined ? `宗门：${p.sect.name}（${TIER_LABEL[p.sect.tier]}·${ALIGN_LABEL[p.sect.align]}）｜名望${p.sect.fame||0}｜贡献${p.sect.contrib||0}` :
+    `散修｜主大陆：${getContinent(STATE).name}｜主功法：${tm.name}`;
 }
 
 function renderMain(){
@@ -1609,19 +1841,32 @@ function renderMain(){
   const body = $("mainBody");
   const p = STATE.player;
 
-  if(STATE._gameOver){
-    $("mainHint").textContent = "寿元已尽。你可以导出存档或重开。";
-  }else{
-    $("mainHint").textContent = tab==="cultivate" ? "选择闭关方案。10年闭关风险可控，但会错过世界窗口。" :
-      tab==="break" ? "准备充分再冲关。失败更像延期成本，而非毁档。" :
-      tab==="explore" ? "探索用于获取资源、悟性线索与外部机缘。" :
-      tab==="sect" ? "宗门系统为轻量MVP，后续可扩展正邪势力链。" :
-      "管理背包与存档设置。";
-  }
+  $("mainHint").textContent = STATE._gameOver ? "寿元已尽。你可以导出存档或重开。" :
+    tab==="cultivate" ? "闭关变慢但更有策略：10年闭关主要代价是错过窗口（可用代理人缓解）。" :
+    tab==="break" ? "准备度越高越稳，失败更像延期成本。" :
+    tab==="explore" ? "探索获取资源、装备、功法与外部机缘。" :
+    tab==="sect" ? "每大陆都有多家一/二/三流宗门。前往宗门驻地互动。" :
+    "装备、功法、背包管理。";
 
   if(tab==="cultivate"){
     const envOpts = ENVIRONMENTS.map(e=>`<option value="${e.id}">${e.name}（效率×${e.eff}，风险×${e.risk}，费用${e.costStone}灵石）</option>`).join("");
-    const agentOpts = AGENT_TASKS.map(a=>`<option value="${a.id}">${a.name}${a.desc?("｜"+a.desc):""}</option>`).join("");
+    const supOpts = SUPPLIES.map(s=>`<option value="${s.id}">${s.name}（费用${s.cost}）</option>`).join("");
+    const polOpts = DEMON_POLICY.map(d=>`<option value="${d.id}">${d.name}｜${d.desc}</option>`).join("");
+    const agOpts  = AGENT_TASKS.map(a=>`<option value="${a.id}">${a.name}｜${a.desc}</option>`).join("");
+    const techOpts = Object.keys(p.techs.known).map(id=>{
+      const t=getTechById(id);
+      const m=p.techs.known[id].mastery||0;
+      return `<option value="${id}" ${id===p.techs.mainId?"selected":""}>${t.name}（熟练${m}）</option>`;
+    }).join("");
+
+    const wins = upcomingWindows(STATE, 360)
+      .filter(w=>w.contId===p.world.contId)
+      .slice(0,6)
+      .map(w=>{
+        const day = (w.startAbs - STATE.time.dayAbs);
+        return `<div class="small">- ${w.typeName}：<b>${w.name}</b>（约${day}天后）</div>`;
+      }).join("") || `<div class="small dim">暂无明显窗口（或你不在对应大陆）。</div>`;
+
     body.innerHTML = `
       <div class="split">
         <div class="card">
@@ -1640,452 +1885,604 @@ function renderMain(){
               <label>环境</label>
               <select id="rtEnv">${envOpts}</select>
             </div>
-          </div>
-
-          <div style="margin-top:10px" class="field">
-            <label>备品（灵石消耗换收益/稳定）</label>
-            <div class="checkline">
-              ${renderCheck("assistPill")}
-              ${renderCheck("protectPill")}
-              ${renderCheck("wardTalis")}
-              ${renderCheck("stablePow")}
+            <div class="field">
+              <label>备品</label>
+              <select id="rtSup">${supOpts}</select>
+            </div>
+            <div class="field">
+              <label>心魔应对</label>
+              <select id="rtDemon">${polOpts}</select>
+            </div>
+            <div class="field">
+              <label>代理人</label>
+              <select id="rtAgent">${agOpts}</select>
+            </div>
+            <div class="field">
+              <label>主修功法</label>
+              <select id="rtTech">${techOpts}</select>
             </div>
           </div>
-
-
-          <div style="margin-top:10px" class="field">
-            <label>心魔应对策略（闭关期间自动执行）</label>
-            <select id="rtDemonPolicy">
-              <option value="suppress">镇压（最稳）</option>
-              <option value="confront">正面应对（稳中求悟）</option>
-              <option value="enlighten">借势悟道（高收益，失败会加深印记）</option>
-            </select>
-            <div class="small muted">提示：这只影响闭关期间触发的心魔事件；你仍可在【设置】里通过“静心”压印记。</div>
-          </div>
-
-          <div style="margin-top:10px" class="field">
-            <label>代理人（闭关期间补救“错过窗口”损失；需额外运作费用）</label>
-            <select id="rtAgent">${agentOpts}</select>
-            <div class="small muted">提示：指派代理人不保证成功，但能让长闭关更“策略”。</div>
-          </div>
-
           <div class="hr"></div>
-          <div class="btnrow">
+          <div class="row" style="gap:10px; flex-wrap:wrap">
             <button class="btn primary" id="btnRetreat">开始闭关</button>
-            <button class="btn" id="btnShort">快速：7天小修</button>
-            <button class="btn" id="btnHeal">疗伤：30天静养</button>
+            <button class="btn" id="btnQuick7">野外探索7天</button>
+            <button class="btn" id="btnQuick30">野外探索30天</button>
           </div>
         </div>
 
         <div class="card">
-          <div class="small"><b>预估收益（参考）</b></div>
+          <div class="small"><b>未来12个月窗口预告（本大陆）</b></div>
           <div class="hr"></div>
-          <div class="small" id="rtPreview">—</div>
+          ${wins}
           <div class="hr"></div>
-          <div class="small"><b>注意事项</b></div>
-          <div class="small muted" style="margin-top:8px; line-height:1.6">
-            • 10年闭关风险不会很高，但会错过秘境/拍卖/宗门窗口，并生成《大事记》。<br/>
-            • 闭关期间若触发心魔，你可以选择镇压/应对/悟道：悟道收益更高但会加深印记。<br/>
-            • 当修为充盈后，可进入【突破】页签冲关；建议先治伤、稳定心境、提升功法熟练。
-          </div>
+          <div class="small dim">提示：10年闭关不会轻易炸炉，但错过窗口可能让机缘被人夺走；代理人可缓解。</div>
         </div>
       </div>
     `;
 
-    setTimeout(()=>{
-      const elDays = $("rtDays"), elEnv=$("rtEnv");
-      const updatePreview = ()=>{
-        const days = parseInt(elDays.value,10);
-        const env = ENVIRONMENTS.find(e=>e.id===elEnv.value) ?? ENVIRONMENTS[0];
-        const baseXP = calcBaseCultivationPerDay(STATE);
-        const baseTech = calcTechGainPerDay(STATE);
-        const xp = baseXP * env.eff * days;
-        const tech = baseTech * env.eff * days;
-        const risk = retreatRiskProfile(days);
-        const qi = Math.round(risk.qi*env.risk*1000)/10;
-        const demon = Math.round(risk.demon*1000)/10;
-        $("rtPreview").textContent =
-          `预计修为 +${fmt(xp)}，功法熟练 +${fmt(tech)}。\n`+
-          `风险（基础）：走火约${qi}%（会被护脉丹进一步降低），心魔触发率约${demon}%（会被辟邪符/印记影响）。\n`+
-          `备注：闭关并不会自动突破；修为可溢出存储，但突破仍需准备与冲关。`;
-      };
-      elDays.onchange = updatePreview;
-      elEnv.onchange = updatePreview;
-      updatePreview();
+    $("btnRetreat").onclick = ()=>{
+      if(STATE._gameOver) return;
+      const days = parseInt($("rtDays").value,10);
+      const envId = $("rtEnv").value;
+      const supplyId = $("rtSup").value;
+      const demonPolicyId = $("rtDemon").value;
+      const agentId = $("rtAgent").value;
+      const techId = $("rtTech").value;
+      setMainTech(STATE, techId);
+      retreat(STATE, { days, envId, supplyId, demonPolicyId, agentId });
+      renderAll();
+      saveAuto();
+    };
+    $("btnQuick7").onclick = ()=>{ exploreQuick(7); };
+    $("btnQuick30").onclick = ()=>{ exploreQuick(30); };
+  }
 
-      $("btnRetreat").onclick = ()=>{
-        const plan = {
-          days: parseInt($("rtDays").value,10),
-          envId: $("rtEnv").value,
-          agentTaskId: $("rtAgent").value,
-          demonPolicy: $("rtDemonPolicy").value,
-          supplies:{
-            assistPill: $("ck_assistPill").checked,
-            protectPill: $("ck_protectPill").checked,
-            wardTalis: $("ck_wardTalis").checked,
-            stablePow: $("ck_stablePow").checked,
-          }
-        };
-        runRetreat(STATE, plan);
-        saveAuto(); renderAll();
-      };
-      $("btnShort").onclick = ()=>{
-        runRetreat(STATE, {days:7, envId:"wild", agentTaskId:"none", supplies:{}});
-        saveAuto(); renderAll();
-      };
-      $("btnHeal").onclick = ()=>{
-        // 静养：不加修为，主要恢复
-        pushLog(STATE, "静养", "你闭门静养30天，调理气血。", "info");
-        advanceDays(STATE, 30, "静养");
-        // 额外恢复
-        STATE.player.hp = clamp(STATE.player.hp + Math.floor(STATE.player.maxHp*0.35), 0, STATE.player.maxHp);
-        if(STATE.player.injury){
-          STATE.player.injury.daysLeft = Math.max(0, STATE.player.injury.daysLeft - 20);
-          if(STATE.player.injury.daysLeft===0) STATE.player.injury=null;
-        }
-        recalcStats(STATE); saveAuto(); renderAll();
-      };
-    },0);
-
-  } else if(tab==="break"){
-    const able = canBreakthrough(STATE);
-    const pt = prepTier(STATE);
+  if(tab==="break"){
+    const prep = prepScore(STATE);
+    const ch = successChanceFromPrep(prep);
     body.innerHTML = `
-      <div class="split">
-        <div class="card">
-          <div class="small"><b>冲关面板</b></div>
-          <div class="hr"></div>
-          <div class="kv"><span>当前境界</span><b>${realmName(STATE)}</b></div>
-          <div class="kv"><span>修为充盈</span><b>${Math.round(clamp(p.xp/p.xpNeed,0,1)*100)}%</b></div>
-          <div class="kv"><span>准备度评分</span><b>${pt.score} / 100</b></div>
-          <div class="kv"><span>准备度等级</span><b>${pt.tier}</b></div>
-          <div class="kv"><span>成功率区间（参考）</span><b>${Math.round(pt.range[0]*100)}% ~ ${Math.round(pt.range[1]*100)}%</b></div>
-          <div class="hr"></div>
-          <div class="small muted" style="line-height:1.6">
-            • 口径2：失败更多是“延期成本”（掉少量修为、受伤、需要巩固），不会动不动掉大境界。<br/>
-            • 你可在冲关时消耗悟性点（最多3）提高成功率。<br/>
-            • 若背包有巩固散，可为一次失败提供“惩罚减半”保底。
-          </div>
-          <div class="hr"></div>
-          <div class="btnrow">
-            <button class="btn primary" id="btnBreak" ${able?"":"disabled"}>尝试突破</button>
-            <button class="btn warn" id="btnBreakIns" ${able?"":"disabled"}>突破（消耗悟性）</button>
-            <button class="btn" id="btnConsolidate">巩固（30天）</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="small"><b>提升准备度的常用手段</b></div>
-          <div class="hr"></div>
-          <div class="small">1) 把修为条填满（闭关/修炼）。</div>
-          <div class="small">2) 提升主修功法熟练（闭关也会涨）。</div>
-          <div class="small">3) 处理伤势与境界不稳（静养/时间巩固）。</div>
-          <div class="small">4) 降低心魔印记（心魔事件选“镇压/应对成功”）。</div>
-          <div class="small">5) 通过探索与事件获得悟性点，再用于冲关加持。</div>
-          <div class="hr"></div>
-          <div class="small"><b>背包保底</b></div>
-          <div class="small muted" style="margin-top:8px">巩固散库存：<b>${p.bag.stabilizePow ?? 0}</b>（失败惩罚减半一次）</div>
-        </div>
-      </div>
-    `;
-    setTimeout(()=>{
-      $("btnBreak").onclick = ()=>{
-        attemptBreakthrough(STATE, false);
-        saveAuto(); renderAll();
-      };
-      $("btnBreakIns").onclick = ()=>{
-        attemptBreakthrough(STATE, true);
-        saveAuto(); renderAll();
-      };
-      $("btnConsolidate").onclick = ()=>{
-        pushLog(STATE, "巩固", "你专注调息30天，稳固气机。", "info");
-        advanceDays(STATE, 30, "巩固");
-        STATE.player.unstableDays = Math.max(0, STATE.player.unstableDays - 25);
-        STATE.player.mind = clamp(STATE.player.mind + 0.4, -5, 10);
-        recalcStats(STATE); saveAuto(); renderAll();
-      };
-    },0);
-
-  } else if(tab==="explore"){
-    const regionOpts = REGIONS.map(r=>`<option value="${r.id}">${r.name}（${r.tierHint}｜主强度：${REALMS[r.mainRealmIdx].name}）</option>`).join("");
-    body.innerHTML = `
-      <div class="split">
-        <div class="card">
-          <div class="small"><b>游历与探索</b></div>
-          <div class="hr"></div>
+      <div class="card">
+        <div class="small"><b>突破准备度</b></div>
+        <div class="hr"></div>
+        <div class="kv"><span>评估</span><b>${prep.label}</b></div>
+        <div class="small dim">准备度来自：修为充盈、功法熟练、悟性储备、状态与环境。</div>
+        <div class="hr"></div>
+        <div class="kv"><span>成功率区间</span><b>${Math.round(ch.lo*100)}% ~ ${Math.round(ch.hi*100)}%</b></div>
+        <div class="hr"></div>
+        <div class="cols2">
           <div class="field">
-            <label>前往地区</label>
-            <select id="exRegion">${regionOpts}</select>
-            <div class="small muted">提示：区域有主强度分布，但仍可能遇到更弱或更强的修士/妖物。</div>
+            <label>投入悟性（提升稳健）</label>
+            <input id="brIns" type="number" min="0" max="120" value="0"/>
+            <div class="small dim">投入后会消耗悟性。</div>
           </div>
-          <div class="hr"></div>
-          <div class="btnrow">
-            <button class="btn" id="btnTravel">赶路（7天）</button>
-            <button class="btn primary" id="btnExplore7">探索（7天）</button>
-            <button class="btn warn" id="btnExplore30">探索（30天）</button>
+          <div class="field">
+            <label>使用巩固散保底</label>
+            <select id="brStab">
+              <option value="0">不使用</option>
+              <option value="1">使用（失败惩罚减半）</option>
+            </select>
+            <div class="small dim">需要你闭关时选择过巩固散或自行拥有（MVP暂按选择生效）。</div>
           </div>
         </div>
+        <div class="hr"></div>
+        <div class="row" style="gap:10px; flex-wrap:wrap">
+          <button class="btn primary" id="btnBreak">冲关</button>
+          <button class="btn" id="btnStabilize">巩固修为（30天）</button>
+        </div>
+      </div>
+    `;
+    $("btnBreak").onclick = ()=>{
+      const spend = parseInt($("brIns").value||"0",10);
+      const useStab = $("brStab").value==="1";
+      doBreakthrough(STATE, spend, useStab);
+      renderAll();
+      saveAuto();
+    };
+    $("btnStabilize").onclick = ()=>{
+      advanceDays(STATE, 30, { silent:true });
+      STATE.player.status.unstableDays = Math.max(0, STATE.player.status.unstableDays-40);
+      pushLog(STATE,"巩固","你花费30天巩固修为，气息更稳。","good");
+      normalizeStatus(STATE); recalcStats(STATE);
+      renderAll(); saveAuto();
+    };
+  }
 
-        <div class="card">
-          <div class="small"><b>探索收益</b></div>
+  if(tab==="explore"){
+    const cont = getContinent(STATE);
+    const map = getMap(STATE);
+    const n = map.size;
+    const tiles = map.tiles.map(t=>{
+      const discovered = t.discovered;
+      const isYou = (t.x===STATE.player.world.x && t.y===STATE.player.world.y);
+      const cls = ["tile", discovered?"":"unknown", isYou?"you":"", (t.type!=="wild" && discovered)?"poi":""].filter(Boolean).join(" ");
+      const sym = !discovered ? "?" : t.type==="city" ? "城" : t.type==="sect" ? "宗" : t.type==="ruin" ? "遗" : t.type==="port" ? "港" : (t.poi?.biome==="雪原"?"雪":t.poi?.biome==="密林"?"林":t.poi?.biome==="山地"?"山":"·");
+      return `<div class="${cls}" data-x="${t.x}" data-y="${t.y}" title="${discovered? tileTitle(t):"未探索"}">${sym}</div>`;
+    }).join("");
+
+    const sel = STATE.ui.selectedTile;
+    let selHtml = `<div class="small dim">点击格子查看信息。</div>`;
+    if(sel){
+      const t = getTile(STATE, sel.x, sel.y);
+      if(t){
+        selHtml = `
+          <div class="small"><b>${t.discovered? tileTitle(t):"未知区域"}</b></div>
+          <div class="small dim">坐标：(${sel.x},${sel.y})｜地形：${t.poi?.biome||"—"}</div>
           <div class="hr"></div>
-          <div class="small muted" style="line-height:1.6">
-            • 灵石：用于闭关环境、备品、符箓等。<br/>
-            • 悟性点：主要来自心魔、传闻残图、少量战斗掉落。<br/>
-            • 遭遇：不做同级匹配，你可能遇到“误闯”的低阶修士，也可能撞上强敌。
+          <div class="row" style="gap:10px; flex-wrap:wrap">
+            <button class="btn" id="btnGoSel">前往</button>
+            <button class="btn" id="btnExploreHere">在此行动</button>
+          </div>
+        `;
+      }
+    }
+
+    const travelOpts = CONTINENTS.filter(c=>c.id!==cont.id)
+      .map(c=>`<option value="${c.id}">${c.name}</option>`).join("");
+
+    body.innerHTML = `
+      <div class="split">
+        <div class="card">
+          <div class="small"><b>五洲地图：${cont.name}</b></div>
+          <div class="small dim">${cont.desc}</div>
+          <div class="hr"></div>
+          <div class="mapWrap">
+            <div class="grid" style="--n:${n}">${tiles}</div>
+            <div style="min-width:240px; flex:1">
+              <div class="card">
+                <div class="small"><b>格子信息</b></div>
+                <div class="hr"></div>
+                ${selHtml}
+                <div class="hr"></div>
+                <div class="legend">
+                  <span class="badge">城=城镇</span>
+                  <span class="badge">宗=宗门</span>
+                  <span class="badge">遗=遗迹</span>
+                  <span class="badge">港=渡界港</span>
+                  <span class="badge">?=未探索</span>
+                </div>
+              </div>
+              <div class="card" style="margin-top:12px">
+                <div class="small"><b>快捷行动</b></div>
+                <div class="hr"></div>
+                <div class="row" style="gap:10px; flex-wrap:wrap">
+                  <button class="btn" id="mvU">↑</button>
+                  <button class="btn" id="mvL">←</button>
+                  <button class="btn" id="mvD">↓</button>
+                  <button class="btn" id="mvR">→</button>
+                  <button class="btn primary" id="btnExploreHere2">在此行动</button>
+                </div>
+                <div class="hr"></div>
+                <div class="row" style="gap:10px; flex-wrap:wrap">
+                  <button class="btn" id="btnBuyItem">城镇买装备</button>
+                  <button class="btn" id="btnBuyTech">城镇买功法</button>
+                </div>
+              </div>
+              <div class="card" style="margin-top:12px">
+                <div class="small"><b>渡界（需在港口）</b></div>
+                <div class="hr"></div>
+                <div class="row" style="gap:10px; flex-wrap:wrap">
+                  <select id="selCont">${travelOpts}</select>
+                  <button class="btn" id="btnTravel">前往</button>
+                </div>
+                <div class="small dim" style="margin-top:8px">提示：渡界耗时30天并支付费用，适合跨大陆发展。</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     `;
-    setTimeout(()=>{
-      $("exRegion").value = p.world.regionId;
-      $("btnTravel").onclick = ()=>{
-        const rid = $("exRegion").value;
-        if(rid === p.world.regionId){
-          pushLog(STATE,"赶路","你已在此地，无需奔波。","info");
-        }else{
-          pushLog(STATE,"赶路",`你启程前往 ${REGIONS.find(r=>r.id===rid)?.name ?? "未知"}，路途7天。`,"info");
-          advanceDays(STATE, 7, "赶路");
-          p.world.regionId = rid;
-          p.world.loc = "野外";
-        }
-        recalcStats(STATE); saveAuto(); renderAll();
-      };
-      $("btnExplore7").onclick = ()=>{ explore(STATE, 7); saveAuto(); renderAll(); };
-      $("btnExplore30").onclick = ()=>{ explore(STATE, 30); saveAuto(); renderAll(); };
-    },0);
 
-  } else if(tab==="sect"){
+    // tile click
+    document.querySelectorAll(".tile").forEach(el=>{
+      el.onclick = ()=>{
+        STATE.ui.selectedTile = { x: parseInt(el.dataset.x,10), y: parseInt(el.dataset.y,10) };
+        renderMain(); saveAuto();
+      };
+    });
+
+    $("mvU").onclick=()=>{ move(STATE,0,-1); renderAll(); saveAuto(); };
+    $("mvD").onclick=()=>{ move(STATE,0,1); renderAll(); saveAuto(); };
+    $("mvL").onclick=()=>{ move(STATE,-1,0); renderAll(); saveAuto(); };
+    $("mvR").onclick=()=>{ move(STATE,1,0); renderAll(); saveAuto(); };
+
+    const exploreBtn = $("btnExploreHere");
+    if(exploreBtn){
+      exploreBtn.onclick=()=>{ exploreHere(STATE); renderAll(); saveAuto(); };
+    }
+    $("btnExploreHere2").onclick=()=>{ exploreHere(STATE); renderAll(); saveAuto(); };
+    $("btnBuyItem").onclick=()=>{ buyRandomItem(STATE); renderAll(); saveAuto(); };
+    $("btnBuyTech").onclick=()=>{ buyTechniqueScroll(STATE); renderAll(); saveAuto(); };
+    $("btnTravel").onclick=()=>{
+      const target = $("selCont").value;
+      travelToContinent(STATE, target);
+      renderAll(); saveAuto();
+    };
+
+    const goSel = $("btnGoSel");
+    if(goSel){
+      goSel.onclick=()=>{
+        const t = STATE.ui.selectedTile;
+        if(!t) return;
+        // path cost: manhattan*2 days
+        const dx = Math.abs(t.x-STATE.player.world.x);
+        const dy = Math.abs(t.y-STATE.player.world.y);
+        const steps = dx+dy;
+        if(steps===0) return;
+        // move step by step to allow encounters; simplified: teleport along straight lines
+        for(let i=0;i<dx;i++) move(STATE, t.x>STATE.player.world.x?1:-1, 0);
+        for(let i=0;i<dy;i++) move(STATE, 0, t.y>STATE.player.world.y?1:-1);
+        renderAll(); saveAuto();
+      };
+    }
+  }
+
+  if(tab==="sect"){
+    const contId = p.world.contId;
+    const list = (STATE.world.sects||[])
+      .filter(s=>s.contId===contId)
+      .sort((a,b)=> (a.tier===b.tier? a.name.localeCompare(b.name): (a.tier<b.tier?-1:1)))
+      .map(s=>{
+        const pos = s.pos ? `(${s.pos.x},${s.pos.y})` : "(?)";
+        const joinReq = `${REALMS[s.realmReq].name}+｜名望${s.fameReq}+｜入门费${s.joinFee}`;
+        return `
+          <div class="itemRow">
+            <div>
+              <b>${s.name}</b>
+              <div class="itemMeta">
+                <span class="pill2">${TIER_LABEL[s.tier]}</span>
+                <span class="pill2">${ALIGN_LABEL[s.align]}</span>
+                <span class="pill2">${getContinent({player:{world:{contId:s.contId}}}).name}</span>
+                <span class="pill2">坐标${pos}</span>
+              </div>
+              <div class="small dim">${joinReq}｜洞府解锁：${ENVIRONMENTS.find(e=>e.id===s.envUnlock)?.name||"—"}</div>
+            </div>
+            <div class="row" style="gap:8px; align-items:center">
+              <button class="btn" data-goto="${s.id}">定位</button>
+            </div>
+          </div>
+        `;
+      }).join("") || `<div class="small dim">本大陆暂无宗门？（通常不会）</div>`;
+
+    const atSect = currentSectTile(STATE);
     body.innerHTML = `
       <div class="split">
         <div class="card">
-          <div class="small"><b>宗门（轻量MVP）</b></div>
+          <div class="small"><b>本大陆宗门列表：${getContinent(STATE).name}</b></div>
           <div class="hr"></div>
-          <div class="small">当前：<b>${p.sect.joined ? p.sect.name : "未入宗门"}</b></div>
-          <div class="small muted" style="margin-top:6px">后续可扩展：一流/二流/三流、正邪、势力战争、追杀/庇护链。</div>
-          <div class="hr"></div>
-          <div class="btnrow">
-            <button class="btn primary" id="btnJoin">${p.sect.joined?"查看宗门事务":"加入宗门（测试）"}</button>
-            <button class="btn" id="btnWork">接差事（30天）</button>
-          </div>
+          <div class="list">${list}</div>
         </div>
 
         <div class="card">
-          <div class="small"><b>宗门收益（后续扩展方向）</b></div>
+          <div class="small"><b>当前互动</b></div>
           <div class="hr"></div>
-          <div class="small muted" style="line-height:1.6">
-            • 宗门洞府：修炼效率提升、风险下降。<br/>
-            • 贡献兑换：突破材料、延寿丹、护道符箓。<br/>
-            • 声望影响：代理人成本/成功率、事件援助概率。<br/>
-            • 正邪值与仇怨：影响遭遇、追杀、交易渠道。
+          <div class="small">${atSect? `你在 <b>${atSect.name}</b> 驻地。`:"你当前不在宗门驻地。前往宗门格子后可互动。"}</div>
+          <div class="hr"></div>
+          <div class="row" style="gap:10px; flex-wrap:wrap">
+            <button class="btn primary" id="btnJoin">尝试加入</button>
+            <button class="btn" id="btnChore">做宗门差事（30天）</button>
+            <button class="btn" id="btnLeave">退出宗门</button>
           </div>
+          <div class="hr"></div>
+          <div class="small dim">提示：后续可扩展宗门等级、正邪冲突、追杀/庇护、宗门战争与职位体系。</div>
         </div>
       </div>
     `;
-    setTimeout(()=>{
-      $("btnJoin").onclick = ()=>{
-        if(!p.sect.joined){
-          p.sect.joined = true;
-          p.sect.name = pick(["清虚宗","天衡宗","落霞门","玄风谷"]);
-          p.sect.tier = "三流";
-          p.sect.align = "正";
-          p.sect.fame = 10;
-          p.sect.contrib = 0;
-          p.world.loc = "宗门洞府";
-          pushLog(STATE, "宗门", `你加入${p.sect.name}，分配到宗门洞府修行。`, "good");
-        }else{
-          openModal(
-            "宗门事务",
-            `<div class="card">
-              <div class="small">宗门：<b>${p.sect.name}</b>（${p.sect.tier}${p.sect.align}）</div>
-              <div class="small">声望：<b>${p.sect.fame}</b>｜贡献：<b>${p.sect.contrib}</b></div>
-              <div class="hr"></div>
-              <div class="small muted">MVP：目前仅开放“差事”与“洞府修炼”加成。后续可扩展宗门战、收徒、秘境分配等。</div>
-            </div>`,
-            [{text:"知道了", cls:"btn primary", onClick: ()=>closeModal()}]
-          );
-        }
-        recalcStats(STATE); saveAuto(); renderAll();
-      };
-      $("btnWork").onclick = ()=>{
-        pushLog(STATE, "差事", "你闭关之外接了宗门/江湖差事30天，换取资源。", "info");
-        advanceDays(STATE, 30, "差事");
-        const gain = 120 + randi(0,120);
-        p.stones += gain;
-        if(p.sect.joined){
-          p.sect.contrib += 30;
-          p.sect.fame += 5;
-        }
-        pushLog(STATE, "差事", `差事完成，灵石 +${gain}${p.sect.joined?("，贡献 +30，声望 +5"):""}。`, "good");
-        recalcStats(STATE); saveAuto(); renderAll();
-      };
-    },0);
 
-  } else if(tab==="bag"){
+    // locate
+    body.querySelectorAll("[data-goto]").forEach(btn=>{
+      btn.onclick = ()=>{
+        const id = btn.getAttribute("data-goto");
+        const s = STATE.world.sects.find(x=>x.id===id);
+        if(!s || !s.pos){ return; }
+        STATE.ui.tab="explore";
+        STATE.ui.selectedTile = { x:s.pos.x, y:s.pos.y };
+        renderTabs(); renderMain(); saveAuto();
+      };
+    });
+
+    $("btnJoin").onclick=()=>{ tryJoinCurrentSect(STATE); renderAll(); saveAuto(); };
+    $("btnChore").onclick=()=>{ sectChore(STATE); renderAll(); saveAuto(); };
+    $("btnLeave").onclick=()=>{ leaveSect(STATE); renderAll(); saveAuto(); };
+  }
+
+  if(tab==="bag"){
+    const p=STATE.player;
+    const eq = p.bag.equip;
+    const byId = new Map(p.bag.items.map(it=>[it.id,it]));
+    const eqRow = (slot)=>{
+      const it = eq[slot] ? byId.get(eq[slot]) : null;
+      const slotName = ITEM_SLOTS.find(s=>s.id===slot).name;
+      return `
+        <div class="itemRow">
+          <div>
+            <b>${slotName}</b>
+            <div class="small dim">${it? `【${it.name}】 ${rarText(it)}｜${statText(it)} ${it.desc?("｜"+it.desc):""}`:"（未装备）"}</div>
+          </div>
+          <div class="row" style="gap:8px">
+            ${it? `<button class="btn" data-uneq="${slot}">卸下</button>`:""}
+          </div>
+        </div>
+      `;
+    };
+
+    const inv = p.bag.items.map(it=>{
+      return `
+        <div class="itemRow">
+          <div>
+            <b>${it.name}</b>
+            <div class="itemMeta">
+              <span class="pill2">${ITEM_SLOTS.find(s=>s.id===it.slot).name}</span>
+              <span class="pill2">${rarText(it)}</span>
+              <span class="pill2">标价${it.price}</span>
+            </div>
+            <div class="small dim">${statText(it)} ${it.desc?("｜"+it.desc):""}</div>
+          </div>
+          <div class="row" style="gap:8px; align-items:center">
+            <button class="btn" data-eq="${it.id}">装备</button>
+            <button class="btn" data-sell="${it.id}">卖出</button>
+          </div>
+        </div>
+      `;
+    }).join("") || `<div class="small dim">背包空空如也。去探索、遗迹或城镇交易吧。</div>`;
+
+    const techList = Object.keys(p.techs.known).map(id=>{
+      const t=getTechById(id);
+      const m=p.techs.known[id].mastery||0;
+      const active = id===p.techs.mainId;
+      return `
+        <div class="itemRow">
+          <div>
+            <b>${t.name}${active?"（主修）":""}</b>
+            <div class="small dim">${t.style}｜熟练${m}/1000｜${t.desc}</div>
+          </div>
+          <div class="row" style="gap:8px">
+            ${active? "" : `<button class="btn" data-main="${id}">设为主修</button>`}
+          </div>
+        </div>
+      `;
+    }).join("");
+
     body.innerHTML = `
       <div class="split">
+        <div class="card">
+          <div class="small"><b>装备栏</b></div>
+          <div class="hr"></div>
+          <div class="list">
+            ${eqRow("weapon")}
+            ${eqRow("armor")}
+            ${eqRow("acc")}
+          </div>
+          <div class="hr"></div>
+          <div class="small dim">卖出需要在城镇。装备与功法会影响属性与闭关效率/风险。</div>
+        </div>
+
         <div class="card">
           <div class="small"><b>背包</b></div>
           <div class="hr"></div>
-          <div class="kv"><span>巩固散</span><b>${p.bag.stabilizePow ?? 0}</b></div>
-          <div class="small muted" style="margin-top:10px; line-height:1.6">
-            巩固散来源：在【修炼/闭关】勾选备品即可购买并入包（用于一次失败惩罚减半保底）。
-          </div>
-          <div class="hr"></div>
-          <div class="btnrow">
-            <button class="btn" id="btnBuyPow">购买巩固散（200灵石）</button>
-            <button class="btn warn" id="btnSpendMind">静心（7天）</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="small"><b>设置</b></div>
-          <div class="hr"></div>
-          <div class="btnrow">
-            <button class="btn" id="btnSave2">保存</button>
-            <button class="btn" id="btnExport2">导出存档</button>
-            <button class="btn" id="btnImport2">导入存档</button>
-            <button class="btn bad" id="btnReset2">重开</button>
-          </div>
-          <div class="hr"></div>
-          <div class="small muted" style="line-height:1.6">
-            • 存档保存在浏览器本地。建议重要节点导出 JSON 备份。<br/>
-            • 如果你在 GitHub Pages 上玩，清理浏览器缓存可能会丢存档；导出可避免。<br/>
-            • 本版本重点实现“修炼/闭关/突破”骨架，宗门与事件库会在后续扩展。
-          </div>
+          <div class="list">${inv}</div>
         </div>
       </div>
-    `;
-    setTimeout(()=>{
-      $("btnBuyPow").onclick = ()=>{
-        if(p.stones>=200){
-          p.stones -= 200;
-          p.bag.stabilizePow = (p.bag.stabilizePow ?? 0) + 1;
-          pushLog(STATE, "购买", "你购得巩固散×1。", "good");
-        }else{
-          pushLog(STATE, "购买", "灵石不足。", "warn");
-        }
-        recalcStats(STATE); saveAuto(); renderAll();
-      };
-      $("btnSpendMind").onclick = ()=>{
-        pushLog(STATE, "静心", "你静坐七日，压下杂念。", "info");
-        advanceDays(STATE, 7, "静心");
-        p.mind = clamp(p.mind + 0.8, -5, 10);
-        if(p.demonMark>0 && rand()<0.40) p.demonMark -= 1;
-        recalcStats(STATE); saveAuto(); renderAll();
-      };
-      $("btnSave2").onclick = saveManual;
-      $("btnExport2").onclick = ()=>exportSave(STATE);
-      $("btnImport2").onclick = ()=>triggerImport();
-      $("btnReset2").onclick = ()=>resetGame();
-    },0);
-  }
 
-  // disable actions if game over
-  if(STATE._gameOver){
-    const buttons = body.querySelectorAll("button");
-    buttons.forEach(b=>{
-      if(!["btnExport2","btnImport2","btnReset2"].includes(b.id)) b.disabled = true;
+      <div class="card" style="margin-top:12px">
+        <div class="small"><b>功法库</b></div>
+        <div class="hr"></div>
+        <div class="list">${techList}</div>
+      </div>
+    `;
+
+    body.querySelectorAll("[data-eq]").forEach(btn=>{
+      btn.onclick=()=>{ equipItem(STATE, btn.getAttribute("data-eq")); renderAll(); saveAuto(); };
+    });
+    body.querySelectorAll("[data-uneq]").forEach(btn=>{
+      btn.onclick=()=>{ unequipSlot(STATE, btn.getAttribute("data-uneq")); renderAll(); saveAuto(); };
+    });
+    body.querySelectorAll("[data-sell]").forEach(btn=>{
+      btn.onclick=()=>{ sellItem(STATE, btn.getAttribute("data-sell")); renderAll(); saveAuto(); };
+    });
+    body.querySelectorAll("[data-main]").forEach(btn=>{
+      btn.onclick=()=>{ setMainTech(STATE, btn.getAttribute("data-main")); renderAll(); saveAuto(); };
     });
   }
 }
 
-function renderCheck(key){
-  const it = SUPPLIES[key];
-  return `<label class="check"><input type="checkbox" id="ck_${it.id}"/> <span>${it.name}</span> <span class="muted">(${it.costStone})</span></label>`;
+function rarText(it){
+  const r = ITEM_RARITY.find(x=>x.id===it.rarity);
+  return r? r.name : it.rarity;
+}
+function statText(it){
+  const s=it.stats||{};
+  const bits=[];
+  if(s.atk) bits.push(`攻+${s.atk}`);
+  if(s.def) bits.push(`防+${s.def}`);
+  if(s.agi) bits.push(`敏+${s.agi}`);
+  if(s.mind) bits.push(`神+${s.mind}`);
+  if(it.extra && it.extra.cultEff) bits.push(`修+${Math.round(it.extra.cultEff*100)}%`);
+  if(it.extra && it.extra.riskMul) bits.push(`险×${it.extra.riskMul.toFixed(2)}`);
+  return bits.join(" · ") || "—";
+}
+
+function exploreQuick(days){
+  if(STATE._gameOver) return;
+  // quick action: doesn't move, just explore current tile type
+  const t = getTile(STATE, STATE.player.world.x, STATE.player.world.y);
+  if(t && t.type!=="wild"){
+    pushLog(STATE,"探索","快捷探索建议在野外进行。你可以在此行动按钮处理当前地点。","info");
+    renderAll(); return;
+  }
+  // simulate repeated exploreHere in chunks
+  const n = Math.max(1, Math.floor(days/7));
+  for(let i=0;i<n;i++){
+    const p=STATE.player;
+    const cont=getContinent(STATE);
+    advanceDays(STATE, 7, { silent:true });
+    const gainStone = Math.floor((randi(18,55) + stagePower(p.realmIdx,p.stageIdx)*8) * cont.mods.res);
+    const gainIns = Math.floor((randi(0,2) + (rand()<0.2?1:0)) * p._insEffMul);
+    p.stones += gainStone; p.insight += gainIns;
+    if(rand()<0.18*cont.mods.res){
+      const it=genItem(STATE,"gather");
+      p.bag.items.push(it);
+      pushLog(STATE,"探索",`野外探索7天：+${gainStone}灵石，+${gainIns}悟性，获得【${it.name}】。`,"good");
+    }else{
+      pushLog(STATE,"探索",`野外探索7天：+${gainStone}灵石，+${gainIns}悟性。`,"good");
+    }
+    if(rand()<0.16*cont.mods.risk){
+      const diff=encounterDifficulty(STATE);
+      pushLog(STATE,"遭遇",`探索途中遭遇敌人（难度${diff}）。`,"warn");
+      resolveFight(STATE, diff);
+    }
+  }
+  normalizeStatus(STATE); recalcStats(STATE);
+  renderAll(); saveAuto();
+}
+
+function tileTitle(t){
+  if(t.type==="city") return `城镇：${t.poi.name}`;
+  if(t.type==="sect") return `宗门：${t.poi.name}`;
+  if(t.type==="ruin") return `遗迹：${t.poi.name}`;
+  if(t.type==="port") return `港口：${t.poi.name}`;
+  return `野外：${t.poi?.biome||"荒野"}`;
+}
+
+function renderLog(){
+  const per = 10;
+  const page = STATE.ui.logPage||0;
+  const start = page*per;
+  const items = STATE.log.slice(start, start+per);
+  const wrap = $("panelLog");
+  const lines = items.map(it=>{
+    const cls = it.type==="good"?"log good":it.type==="bad"?"log bad":it.type==="warn"?"log warn":"log";
+    const msg = it.type==="info_html" ? it.msg : escapeHtml(it.msg);
+    return `<div class="${cls}"><div class="small dim">${escapeHtml(it.t)} · ${escapeHtml(it.who)}</div><div>${msg}</div></div>`;
+  }).join("") || `<div class="small dim">暂无日志</div>`;
+  const totalPages = Math.max(1, Math.ceil(STATE.log.length/per));
+  wrap.innerHTML = `
+    <div class="hd">
+      <div>
+        <h2>事件日志</h2>
+        <div class="hint">最新在上｜每页${per}条</div>
+      </div>
+      <div class="row" style="gap:8px">
+        <button class="btn" id="logPrev">上一页</button>
+        <div class="pill"><span>页</span><b class="mono">${page+1}/${totalPages}</b></div>
+        <button class="btn" id="logNext">下一页</button>
+      </div>
+    </div>
+    <div class="bd">${lines}</div>
+  `;
+  $("logPrev").onclick=()=>{ STATE.ui.logPage = Math.max(0, page-1); renderLog(); saveAuto(); };
+  $("logNext").onclick=()=>{ STATE.ui.logPage = Math.min(totalPages-1, page+1); renderLog(); saveAuto(); };
+}
+
+function escapeHtml(s){
+  return (""+s).replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
 }
 
 function renderAll(){
-  renderTabs();
   renderTop();
   renderChar();
-  renderUpcoming();
+  renderTabs();
   renderMain();
   renderLog();
 }
 
-function triggerImport(){
-  const inp = document.createElement("input");
-  inp.type="file";
-  inp.accept="application/json";
-  inp.onchange = ()=>{
-    const f = inp.files?.[0];
-    if(f) importSaveFromFile(f);
-  };
-  inp.click();
-}
-
-function resetGame(){
-  openModal(
-    "确认重开",
-    `<div class="card"><div class="small danger"><b>重开会清空本地存档。</b></div><div class="small muted" style="margin-top:8px">建议先导出存档备份。</div></div>`,
-    [
-      { text:"导出备份", cls:"btn", onClick: ()=>exportSave(STATE) },
-      { text:"确认重开", cls:"btn bad", onClick: ()=>{ closeModal(); localStorage.removeItem(STORAGE_KEY); stateReplace(newGame()); } },
-      { text:"取消", cls:"btn", onClick: ()=>closeModal() },
-    ]
-  );
-}
-
-// =========================
-// Boot
-// =========================
-
-function loadOrNew(){
+/* =========================
+   Save / Load
+========================= */
+function saveAuto(){
   try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw){
-      const s = JSON.parse(raw);
-      if(s && s.player && s.time){
-        s.version = VERSION;
-        // 兼容字段
-        s.ui ??= { tab:"cultivate", logPage:0 };
-        s.log ??= [];
-        s.world ??= { windows:[], lastWindowGenYear:0, npcs:{rivals:[]}, lastChronicle:null };
-        s.player.bag ??= { stabilizePow:0 };
-        ensureWindowsForYear(s, getYear(s));
-        recalcStats(s);
-        pushLog(s, "系统", "已读取本地存档。", "good");
-        return s;
-      }
-    }
+    localStorage.setItem(SAVE_KEY, JSON.stringify(STATE));
   }catch(e){}
-  return newGame();
+}
+function loadAuto(){
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return null;
+    const obj = JSON.parse(raw);
+    return migrateSave(obj);
+  }catch(e){
+    return null;
+  }
 }
 
-document.addEventListener("DOMContentLoaded", ()=>{
-  STATE = loadOrNew();
-
-  // global buttons
-  $("btnSave").onclick = saveManual;
-  $("btnExport").onclick = ()=>exportSave(STATE);
-  $("btnImport").onclick = ()=>triggerImport();
-  $("btnReset").onclick = ()=>resetGame();
-  $("btnClearLog").onclick = ()=>{
-    openModal(
-      "清空日志",
-      `<div class="card"><div class="small">确认清空事件日志？存档不会删除。</div></div>`,
-      [
-        { text:"确认清空", cls:"btn bad", onClick: ()=>{
-          closeModal();
-          STATE.log = [];
-          STATE.ui.logPage = 0;
-          pushLog(STATE, "系统", "事件日志已清空。", "info");
-          saveAuto(); renderAll();
-        }},
-        { text:"取消", cls:"btn", onClick: ()=>closeModal() },
-      ]
-    );
-  };
-
-  $("btnPrev").onclick = ()=>{ STATE.ui.logPage = Math.max(0, STATE.ui.logPage-1); renderLog(); saveAuto(); };
-  $("btnNext").onclick = ()=>{ STATE.ui.logPage += 1; renderLog(); saveAuto(); };
-
-  $("modalClose").onclick = closeModal;
-  $("modalWrap").addEventListener("click", (e)=>{ if(e.target === $("modalWrap")) closeModal(); });
-
+function exportSave(){
+  const data = JSON.stringify(STATE);
+  navigator.clipboard.writeText(data).then(()=>{
+    pushLog(STATE,"系统","存档已复制到剪贴板。","good");
+    renderLog();
+  }).catch(()=>{
+    prompt("复制以下存档文本：", data);
+  });
+}
+function importSave(){
+  const txt = prompt("粘贴存档文本：");
+  if(!txt) return;
+  try{
+    const obj = JSON.parse(txt);
+    const m = migrateSave(obj);
+    if(!m) throw new Error("bad save");
+    STATE = m;
+    bootstrapWorld(STATE);
+    pushLog(STATE,"系统","存档导入成功。","good");
+    renderAll();
+    saveAuto();
+  }catch(e){
+    alert("导入失败：存档格式不正确。");
+  }
+}
+function resetSave(){
+  if(!confirm("确定重开？将清除本地存档。")) return;
+  localStorage.removeItem(SAVE_KEY);
+  STATE = newGame();
+  bootstrapWorld(STATE);
   renderAll();
-});
+  saveAuto();
+}
+
+/* =========================
+   Init
+========================= */
+function bootstrapWorld(state){
+  // ensure windows current year
+  ensureWindowsForYear(state, getYear(state));
+  // generate sects/maps if missing
+  if(!state.world.sects || !state.world.sects.length){
+    genSectsForAllContinents(state);
+  }
+  // ensure maps exist and place sects
+  placeSectsOnMaps(state);
+
+  // set initial tile discovered
+  const tile = getTile(state, state.player.world.x, state.player.world.y);
+  if(tile) tile.discovered=true;
+
+  recalcStats(state);
+}
+
+function newGame(){
+  const s = defaultPlayer();
+  pushLog(s, "系统", "欢迎来到修真RPG v0.2：五洲地图、装备与功法、宗门多势力（MVP）。建议先在【地图探索】熟悉城镇/宗门/遗迹。", "info");
+  ensureWindowsForYear(s, 1);
+  return s;
+}
+
+function bindTopButtons(){
+  $("btnSave").onclick=()=>{ saveAuto(); pushLog(STATE,"系统","已保存。","good"); renderLog(); };
+  $("btnExport").onclick=()=>{ exportSave(); };
+  $("btnImport").onclick=()=>{ importSave(); };
+  $("btnReset").onclick=()=>{ resetSave(); };
+}
+
+function main(){
+  STATE = loadAuto() || newGame();
+  bootstrapWorld(STATE);
+  bindTopButtons();
+  renderAll();
+}
+
+main();
+
+})();
+
 </script>
 </body>
 </html>
